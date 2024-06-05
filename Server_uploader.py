@@ -38,10 +38,10 @@ import json
 import tempfile
 import shutil
 import sys
-from typing import Dict, List, Union
+#from typing import Dict, List, Union
 from shapely.wkt import loads as wkt_loads
 
-from dataclasses import dataclass
+#from dataclasses import dataclass
 
 
 
@@ -51,17 +51,17 @@ from .resources import *
 from .Server_uploader_dialog import Server_uploaderDialog
 import os.path
 
-@dataclass
-class DataQualityError:
-    geom: str
-    error_message: str
-    severity: int
-
-@dataclass
-class DataQualityCheckResult:
-    name: str
-    status: str ##enum
-    errors: List[DataQualityError]
+# @dataclass
+# class DataQualityError:
+#     geom: str
+#     error_message: str
+#     severity: int
+#
+# @dataclass
+# class DataQualityCheckResult:
+#     name: str
+#     status: str ##enum
+#     errors: List[DataQualityError]
 
 class Server_uploader:
     """QGIS Plugin Implementation."""
@@ -237,10 +237,42 @@ class Server_uploader:
             # substitute with your code.
             pass
 
-    def run_quality_checks(self) -> List[DataQualityCheckResult]:
-        raise NotImplementedError("still to do")
+    # def run_quality_checks(self) -> List[DataQualityCheckResult]:
+    #     raise NotImplementedError("still to do")
 
-    def check_button_clicked(self, for_upload: boolean=False):
+    def check_unique_ids(self, layer):
+        """Check that all 'feeder_id' values are unique."""
+        errors = []
+        idx = layer.fields().indexFromName('feeder_id')
+        unique_values = set()
+
+        for feature in layer.getFeatures():
+            value = feature.attributes()[idx]
+            if isinstance(value, QVariant):
+                value = None
+            if value is not None and value != '' and value != 'NULL':
+                if value in unique_values:
+                    errors.append(feature)
+                else:
+                    unique_values.add(value)
+
+        return errors
+
+    def check_non_null_ids(self, layer):
+        """Check that all 'feeder_id' values are not NULL."""
+        errors = []
+        idx = layer.fields().indexFromName('feeder_id')
+
+        for feature in layer.getFeatures():
+            value = feature.attributes()[idx]
+            if isinstance(value, QVariant):
+                value = None
+            if value is None or value == '' or value == 'NULL':
+                errors.append(feature)
+
+        return errors
+
+    def check_button_clicked(self):
         layer_name = "Nieuwe voedingen-stadsplan"
         layer = QgsProject.instance().mapLayersByName(layer_name)
 
@@ -248,31 +280,9 @@ class Server_uploader:
             layer = layer[0]
             errors = []
 
-            # Get the index of the 'feeder_id' field
-            idx = layer.fields().indexFromName('feeder_id')
-
-            # Create a set to store unique values of 'feeder_id'
-            unique_values = set()
-
-            # Iterate over features
-            for feature in layer.getFeatures():
-                # Get the value of 'feeder_id' field for the feature
-                value = feature.attributes()[idx]
-
-                # Check if the value is a QVariant object
-                if isinstance(value, QVariant):
-                    # Treat QVariant objects as NULL
-                    value = None
-
-                # Check if 'feeder_id' is NULL
-                if value is None or value == '' or value == 'NULL':
-                    errors.append(feature)
-                else:
-                    # Check if 'feeder_id' value is unique
-                    if value in unique_values:
-                        errors.append(feature)
-                    else:
-                        unique_values.add(value)
+            # Perform both checks
+            errors.extend(self.check_unique_ids(layer))
+            errors.extend(self.check_non_null_ids(layer))
 
             if errors:
                 # Create a new memory layer for errors
@@ -306,12 +316,8 @@ class Server_uploader:
                 self.show_error_message("Errors detected, check Errors layer.")
                 return True
             else:
-                if for_upload:
-                    # Show message indicating no errors were found and upload starting
-                    self.show_information_message("No errors detected in layer. Upload starting.")
-                else:
-                    # Show message indicating no errors were found
-                    self.show_information_message("No errors detected in layer.")
+                # Show message indicating no errors were found
+                self.show_information_message("No errors detected in layer.")
                 return False
 
         else:
@@ -321,19 +327,19 @@ class Server_uploader:
             return True
 
     def upload_to_server_button_clicked(self):
-        # Perform the check before uploading
-        errors_present = self.check_button_clicked(for_upload=True)
-
-        if errors_present:
-            # Upload cannot proceed if there are errors
-            return
-
-        # Get the layer by its name
         layer_name = "Nieuwe voedingen-stadsplan"
         layers = QgsProject.instance().mapLayersByName(layer_name)
 
         if layers:
             layer = layers[0]
+
+            # Perform both checks
+            unique_errors = self.check_unique_ids(layer)
+            null_errors = self.check_non_null_ids(layer)
+
+            if unique_errors or null_errors:
+                self.show_error_message("Errors detected in the layer. Upload cannot proceed.")
+                return
 
             # Convert layer features to GeoJSON features
             geojson_features = []
@@ -341,14 +347,12 @@ class Server_uploader:
                 properties = {}
                 for field in feature.fields():
                     value = feature[field.name()]
-                    # Replace NULL values with a placeholder
                     if isinstance(value, QVariant):
                         value = None if value.isNull() else value.value()
                     properties[field.name()] = value
 
-                # Convert QgsGeometry to WKT string and then to GeoJSON format
                 wkt_geometry = feature.geometry().asWkt()
-                shapely_geometry = shape({"type": "Point", "coordinates": (0, 0)})  # Assuming point geometry
+                shapely_geometry = shape({"type": "Point", "coordinates": (0, 0)})
                 try:
                     shapely_geometry = wkt.loads(wkt_geometry)
                 except Exception as e:
@@ -370,7 +374,6 @@ class Server_uploader:
                 "Content-Type": "application/json"
             }
 
-            # Fetch existing feeder_ids
             response = requests.get(f"{supabase_url}/rest/v1/geojson_files?select=feeder_id", headers=headers)
             if response.status_code == 200:
                 try:
@@ -384,27 +387,15 @@ class Server_uploader:
                 self.show_error_message("Error fetching existing feeder_ids.")
                 return
 
-            # Upload or update GeoJSON features
             upload_success = True
             for geojson_feature in geojson_features:
-                # Extract properties
                 properties = geojson_feature["properties"]
-
-                # Prepare data for insertion/updating
-                insert_data = {}
-                for prop_name, prop_value in properties.items():
-                    insert_data[prop_name] = prop_value
-
-                # Add geometry to insert data
+                insert_data = {prop_name: prop_value for prop_name, prop_value in properties.items()}
                 insert_data["geometry"] = geojson_feature["geometry"]
-
-                # Convert insert data to string
                 insert_data_str = json.dumps(insert_data)
-
-                # Check if the feeder_id exists and perform upsert
                 feeder_id = properties.get("feeder_id")
+
                 if feeder_id in existing_feeder_ids:
-                    # Update existing entry
                     url = f"{supabase_url}/rest/v1/geojson_files?feeder_id=eq.{feeder_id}"
                     response = requests.patch(url, data=insert_data_str, headers=headers)
                     if response.status_code != 204:
@@ -412,7 +403,6 @@ class Server_uploader:
                             f"Error updating GeoJSON data for feeder_id {feeder_id}. Status code: {response.status_code}, Response: {response.text}")
                         upload_success = False
                 else:
-                    # Insert new entry
                     url = f"{supabase_url}/rest/v1/geojson_files"
                     response = requests.post(url, data=insert_data_str, headers=headers)
                     if response.status_code != 201:
@@ -421,13 +411,10 @@ class Server_uploader:
                         upload_success = False
 
             if upload_success:
-                # Show message indicating the upload was successful
                 self.show_information_message("Upload completed successfully.")
             else:
-                # Show message indicating the upload encountered errors
                 self.show_error_message("Some errors occurred during upload.")
         else:
-            # Print a message if the layer does not exist
             print(f"Layer '{layer_name}' not found.")
             self.show_error_message(f"Layer '{layer_name}' not found.")
 
@@ -438,9 +425,3 @@ class Server_uploader:
     def show_information_message(self, message):
         """Displays an information message to the user"""
         QMessageBox.information(None, "Information", message)
-
-
-    
-
-
-
