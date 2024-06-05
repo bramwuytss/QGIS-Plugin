@@ -326,6 +326,54 @@ class Server_uploader:
             self.show_error_message(f"Layer '{layer_name}' not found.")
             return True
 
+    def perform_upload(self, geojson_features):
+        supabase_url = "https://vckjtooglwrxxmwcyyeo.supabase.co"
+        service_role_api_key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZja2p0b29nbHdyeHhtd2N5eWVvIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTcxNTc2Nzg3MiwiZXhwIjoyMDMxMzQzODcyfQ.sa090Kgdfn357eTGO1kLIwoJj4zQ1cEuwCdjVP1CzN8"
+        headers = {
+            "apikey": service_role_api_key,
+            "Authorization": f"Bearer {service_role_api_key}",
+            "Content-Type": "application/json"
+        }
+
+        # Fetch existing feeder_ids
+        response = requests.get(f"{supabase_url}/rest/v1/geojson_files?select=feeder_id", headers=headers)
+        if response.status_code == 200:
+            try:
+                existing_feeder_ids = {item['feeder_id'] for item in response.json()}
+            except ValueError as e:
+                print(f"Error parsing JSON response: {e}")
+                self.show_error_message("Error parsing existing feeder_ids response.")
+                return False
+        else:
+            print(f"Error fetching existing feeder_ids: {response.status_code} - {response.text}")
+            self.show_error_message("Error fetching existing feeder_ids.")
+            return False
+
+        upload_success = True
+        for geojson_feature in geojson_features:
+            properties = geojson_feature["properties"]
+            insert_data = {prop_name: prop_value for prop_name, prop_value in properties.items()}
+            insert_data["geometry"] = geojson_feature["geometry"]
+            insert_data_str = json.dumps(insert_data)
+            feeder_id = properties.get("feeder_id")
+
+            if feeder_id in existing_feeder_ids:
+                url = f"{supabase_url}/rest/v1/geojson_files?feeder_id=eq.{feeder_id}"
+                response = requests.patch(url, data=insert_data_str, headers=headers)
+                if response.status_code != 204:
+                    print(
+                        f"Error updating GeoJSON data for feeder_id {feeder_id}. Status code: {response.status_code}, Response: {response.text}")
+                    upload_success = False
+            else:
+                url = f"{supabase_url}/rest/v1/geojson_files"
+                response = requests.post(url, data=insert_data_str, headers=headers)
+                if response.status_code != 201:
+                    print(
+                        f"Error uploading GeoJSON data. Status code: {response.status_code}, Response: {response.text}")
+                    upload_success = False
+
+        return upload_success
+
     def upload_to_server_button_clicked(self):
         layer_name = "Nieuwe voedingen-stadsplan"
         layers = QgsProject.instance().mapLayersByName(layer_name)
@@ -366,49 +414,8 @@ class Server_uploader:
                 }
                 geojson_features.append(geojson_feature)
 
-            supabase_url = "https://vckjtooglwrxxmwcyyeo.supabase.co"
-            service_role_api_key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZja2p0b29nbHdyeHhtd2N5eWVvIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTcxNTc2Nzg3MiwiZXhwIjoyMDMxMzQzODcyfQ.sa090Kgdfn357eTGO1kLIwoJj4zQ1cEuwCdjVP1CzN8"
-            headers = {
-                "apikey": service_role_api_key,
-                "Authorization": f"Bearer {service_role_api_key}",
-                "Content-Type": "application/json"
-            }
-
-            response = requests.get(f"{supabase_url}/rest/v1/geojson_files?select=feeder_id", headers=headers)
-            if response.status_code == 200:
-                try:
-                    existing_feeder_ids = {item['feeder_id'] for item in response.json()}
-                except ValueError as e:
-                    print(f"Error parsing JSON response: {e}")
-                    self.show_error_message("Error parsing existing feeder_ids response.")
-                    return
-            else:
-                print(f"Error fetching existing feeder_ids: {response.status_code} - {response.text}")
-                self.show_error_message("Error fetching existing feeder_ids.")
-                return
-
-            upload_success = True
-            for geojson_feature in geojson_features:
-                properties = geojson_feature["properties"]
-                insert_data = {prop_name: prop_value for prop_name, prop_value in properties.items()}
-                insert_data["geometry"] = geojson_feature["geometry"]
-                insert_data_str = json.dumps(insert_data)
-                feeder_id = properties.get("feeder_id")
-
-                if feeder_id in existing_feeder_ids:
-                    url = f"{supabase_url}/rest/v1/geojson_files?feeder_id=eq.{feeder_id}"
-                    response = requests.patch(url, data=insert_data_str, headers=headers)
-                    if response.status_code != 204:
-                        print(
-                            f"Error updating GeoJSON data for feeder_id {feeder_id}. Status code: {response.status_code}, Response: {response.text}")
-                        upload_success = False
-                else:
-                    url = f"{supabase_url}/rest/v1/geojson_files"
-                    response = requests.post(url, data=insert_data_str, headers=headers)
-                    if response.status_code != 201:
-                        print(
-                            f"Error uploading GeoJSON data. Status code: {response.status_code}, Response: {response.text}")
-                        upload_success = False
+            # Perform the upload
+            upload_success = self.perform_upload(geojson_features)
 
             if upload_success:
                 self.show_information_message("Upload completed successfully.")
@@ -425,3 +432,10 @@ class Server_uploader:
     def show_information_message(self, message):
         """Displays an information message to the user"""
         QMessageBox.information(None, "Information", message)
+
+
+
+    
+
+
+
