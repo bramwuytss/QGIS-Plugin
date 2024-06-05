@@ -26,6 +26,8 @@ from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction
 from qgis.PyQt.QtWidgets import QPushButton
 from qgis.core import QgsVectorLayer, QgsFeature, QgsField, QgsGeometry, QgsProject, QgsCoordinateReferenceSystem, QgsCoordinateTransformContext, QgsWkbTypes, QgsVectorFileWriter
+from qgis.core import QgsSymbol, QgsProject, QgsVectorLayer, QgsWkbTypes, QgsFeature, QgsSingleSymbolRenderer, QgsCoordinateReferenceSystem
+from PyQt5.QtGui import QColor
 from qgis.PyQt.QtCore import QVariant
 from PyQt5.QtCore import QVariant
 from shapely.geometry import shape, mapping
@@ -244,20 +246,23 @@ class Server_uploader:
         """Check that all 'feeder_id' values are unique."""
         errors = []
         idx = layer.fields().indexFromName('feeder_id')
-        unique_values = set()
+        feeder_id_counts = {}
 
         for feature in layer.getFeatures():
             value = feature.attributes()[idx]
             if isinstance(value, QVariant):
                 value = None
             if value is not None and value != '' and value != 'NULL':
-                if value in unique_values:
-                    errors.append(feature)
+                if value in feeder_id_counts:
+                    feeder_id_counts[value].append(feature)
                 else:
-                    unique_values.add(value)
+                    feeder_id_counts[value] = [feature]
+
+        for features in feeder_id_counts.values():
+            if len(features) > 1:
+                errors.extend(features)
 
         return errors
-
     def check_non_null_ids(self, layer):
         """Check that all 'feeder_id' values are not NULL."""
         errors = []
@@ -272,56 +277,68 @@ class Server_uploader:
 
         return errors
 
+    def create_error_layer(self, layer_name, original_layer, error_features):
+        """Create a new error layer and add it to the Errors group."""
+        if not error_features:
+            print(f"No error features to add for {layer_name}")
+            return
+
+        error_layer = QgsVectorLayer(QgsWkbTypes.displayString(original_layer.wkbType()), layer_name, "memory")
+
+        # Set CRS to match the original layer
+        error_layer.setCrs(original_layer.crs())
+
+        provider = error_layer.dataProvider()
+        provider.addAttributes(original_layer.fields())
+        error_layer.updateFields()
+
+        # Add features to the error layer
+        provider.addFeatures(error_features)
+
+        # Define the red line style
+        symbol = QgsSymbol.defaultSymbol(QgsWkbTypes.LineGeometry)
+        symbol.setColor(QColor("red"))
+        renderer = QgsSingleSymbolRenderer(symbol)
+        error_layer.setRenderer(renderer)
+
+        # Add the error layer to the Errors group
+        errors_group = QgsProject.instance().layerTreeRoot().findGroup("Errors")
+        if not errors_group:
+            errors_group = QgsProject.instance().layerTreeRoot().addGroup("Errors")
+
+        QgsProject.instance().addMapLayer(error_layer, False)
+        errors_group.addLayer(error_layer)
+
+        # Force layer visibility
+        layer_tree_layer = QgsProject.instance().layerTreeRoot().findLayer(error_layer.id())
+        if layer_tree_layer is not None:
+            layer_tree_layer.setItemVisibilityChecked(True)
+
+
     def check_button_clicked(self):
         layer_name = "Nieuwe voedingen-stadsplan"
         layer = QgsProject.instance().mapLayersByName(layer_name)
 
         if layer:
             layer = layer[0]
-            errors = []
 
             # Perform both checks
-            errors.extend(self.check_unique_ids(layer))
-            errors.extend(self.check_non_null_ids(layer))
+            unique_errors = self.check_unique_ids(layer)
+            null_errors = self.check_non_null_ids(layer)
 
-            if errors:
-                # Create a new memory layer for errors
-                error_layer = QgsVectorLayer(QgsWkbTypes.displayString(layer.wkbType()), "errors", "memory")
+            # Create error layers
+            if unique_errors:
+                self.create_error_layer("No unique ID's", layer, unique_errors)
+            if null_errors:
+                self.create_error_layer("ID's with null values", layer, null_errors)
 
-                # Set CRS to EPSG 31370
-                crs = QgsCoordinateReferenceSystem('EPSG:31370')
-                error_layer.setCrs(crs)
-
-                provider = error_layer.dataProvider()
-
-                # Add fields to the error layer
-                provider.addAttributes(layer.fields())
-
-                # Add features to the error layer with attributes copied from the original layer
-                for error_feature in errors:
-                    error_feature_geom = error_feature.geometry()
-                    error_feature_attrs = error_feature.attributes()
-                    new_feature = QgsFeature()
-                    new_feature.setGeometry(error_feature_geom)
-                    new_feature.setAttributes(error_feature_attrs)
-                    provider.addFeature(new_feature)
-
-                # Update the attribute table of the error layer
-                error_layer.updateFields()
-
-                # Add the error layer to the map
-                QgsProject.instance().addMapLayer(error_layer)
-
-                # Show message indicating errors were found
-                self.show_error_message("Errors detected, check Errors layer.")
+            if unique_errors or null_errors:
+                self.show_error_message("Errors detected, check Errors layer group.")
                 return True
             else:
-                # Show message indicating no errors were found
                 self.show_information_message("No errors detected in layer.")
                 return False
-
         else:
-            # Print a message if the layer does not exist
             print(f"Layer '{layer_name}' not found.")
             self.show_error_message(f"Layer '{layer_name}' not found.")
             return True
@@ -432,10 +449,3 @@ class Server_uploader:
     def show_information_message(self, message):
         """Displays an information message to the user"""
         QMessageBox.information(None, "Information", message)
-
-
-
-    
-
-
-
