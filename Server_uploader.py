@@ -22,11 +22,9 @@
  ***************************************************************************/
 """
 from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication
-from qgis.PyQt.QtGui import QIcon
-from qgis.PyQt.QtWidgets import QAction
-from qgis.PyQt.QtWidgets import QPushButton
-from qgis.core import QgsVectorLayer, QgsFeature, QgsField, QgsGeometry, QgsProject, QgsCoordinateReferenceSystem, QgsCoordinateTransformContext, QgsWkbTypes, QgsVectorFileWriter
-from qgis.core import QgsSymbol, QgsProject, QgsVectorLayer, QgsWkbTypes, QgsFeature, QgsSingleSymbolRenderer, QgsCoordinateReferenceSystem
+from qgis.PyQt.QtGui import QIcon, QPixmap
+from qgis.PyQt.QtWidgets import QAction, QPushButton, QTextEdit, QHBoxLayout, QLabel, QVBoxLayout, QWidget
+from qgis.core import QgsVectorLayer, QgsFeature, QgsField, QgsGeometry, QgsProject, QgsCoordinateReferenceSystem, QgsCoordinateTransformContext, QgsWkbTypes, QgsVectorFileWriter, QgsSymbol, QgsSingleSymbolRenderer
 from PyQt5.QtGui import QColor
 from qgis.PyQt.QtCore import QVariant
 from PyQt5.QtCore import QVariant
@@ -229,6 +227,8 @@ class Server_uploader:
             upload_button = self.dlg.findChild(QPushButton, "Upload_to_server")  # Find the button by object name
             upload_button.clicked.connect(self.upload_to_server_button_clicked)
 
+            self.textbox1 = self.dlg.TextBox1
+
         # show the dialog
         self.dlg.show()
         # Run the dialog event loop
@@ -321,27 +321,69 @@ class Server_uploader:
 
         if layer:
             layer = layer[0]
-
-            # Perform both checks
             unique_errors = self.check_unique_ids(layer)
             null_errors = self.check_non_null_ids(layer)
 
-            # Create error layers
+            # Display results in the text box
+            self.textbox1.clear()
             if unique_errors:
-                self.create_error_layer("No unique ID's", layer, unique_errors)
-            if null_errors:
-                self.create_error_layer("ID's with null values", layer, null_errors)
+                unique_check_result = "❌ Unique ID Check: Failed"
+            else:
+                unique_check_result = "✔️ Unique ID Check: Passed"
 
+            if null_errors:
+                non_null_check_result = "❌ Non-NULL ID Check: Failed"
+            else:
+                non_null_check_result = "✔️ Non-NULL ID Check: Passed"
+
+            self.textbox1.append(unique_check_result)
+            self.textbox1.append(non_null_check_result)
+
+            # If there are any errors, create an error layer
             if unique_errors or null_errors:
-                self.show_error_message("Errors detected, check Errors layer group.")
+                errors = unique_errors + null_errors
+
+                # Create a new memory layer for errors
+                error_layer = QgsVectorLayer(QgsWkbTypes.displayString(layer.wkbType()), "errors", "memory")
+
+                # Set CRS to EPSG 31370
+                crs = QgsCoordinateReferenceSystem('EPSG:31370')
+                error_layer.setCrs(crs)
+
+                provider = error_layer.dataProvider()
+
+                # Add fields to the error layer
+                provider.addAttributes(layer.fields())
+
+                # Add features to the error layer with attributes copied from the original layer
+                for error_feature in errors:
+                    error_feature_geom = error_feature.geometry()
+                    error_feature_attrs = error_feature.attributes()
+                    new_feature = QgsFeature()
+                    new_feature.setGeometry(error_feature_geom)
+                    new_feature.setAttributes(error_feature_attrs)
+                    provider.addFeature(new_feature)
+
+                # Update the attribute table of the error layer
+                error_layer.updateFields()
+
+                # Add the error layer to the map
+                QgsProject.instance().addMapLayer(error_layer)
+
+                # Show message indicating errors were found
+                self.show_error_message("Errors detected, check Errors layer.")
                 return True
             else:
+                # Show message indicating no errors were found
                 self.show_information_message("No errors detected in layer.")
                 return False
+
         else:
+            # Print a message if the layer does not exist
             print(f"Layer '{layer_name}' not found.")
             self.show_error_message(f"Layer '{layer_name}' not found.")
             return True
+
 
     def perform_upload(self, geojson_features):
         supabase_url = "https://vckjtooglwrxxmwcyyeo.supabase.co"
