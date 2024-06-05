@@ -339,50 +339,23 @@ class Server_uploader:
             self.textbox1.append(unique_check_result)
             self.textbox1.append(non_null_check_result)
 
-            # If there are any errors, create an error layer
+            # Create error layers
+            if unique_errors:
+                self.create_error_layer("No unique ID's", layer, unique_errors)
+            if null_errors:
+                self.create_error_layer("ID's with null values", layer, null_errors)
+
             if unique_errors or null_errors:
-                errors = unique_errors + null_errors
-
-                # Create a new memory layer for errors
-                error_layer = QgsVectorLayer(QgsWkbTypes.displayString(layer.wkbType()), "errors", "memory")
-
-                # Set CRS to EPSG 31370
-                crs = QgsCoordinateReferenceSystem('EPSG:31370')
-                error_layer.setCrs(crs)
-
-                provider = error_layer.dataProvider()
-
-                # Add fields to the error layer
-                provider.addAttributes(layer.fields())
-
-                # Add features to the error layer with attributes copied from the original layer
-                for error_feature in errors:
-                    error_feature_geom = error_feature.geometry()
-                    error_feature_attrs = error_feature.attributes()
-                    new_feature = QgsFeature()
-                    new_feature.setGeometry(error_feature_geom)
-                    new_feature.setAttributes(error_feature_attrs)
-                    provider.addFeature(new_feature)
-
-                # Update the attribute table of the error layer
-                error_layer.updateFields()
-
-                # Add the error layer to the map
-                QgsProject.instance().addMapLayer(error_layer)
-
-                # Show message indicating errors were found
-                self.show_error_message("Errors detected, check Errors layer.")
+                self.show_error_message("Errors detected, check Errors layer group.")
                 return True
             else:
-                # Show message indicating no errors were found
                 self.show_information_message("No errors detected in layer.")
                 return False
-
         else:
-            # Print a message if the layer does not exist
             print(f"Layer '{layer_name}' not found.")
             self.show_error_message(f"Layer '{layer_name}' not found.")
             return True
+
 
 
     def perform_upload(self, geojson_features):
