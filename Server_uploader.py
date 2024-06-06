@@ -402,6 +402,13 @@ class Server_uploader:
             "Content-Type": "application/json"
         }
 
+        # Perform delete operation to clear existing records in the final table
+        delete_url = f"{supabase_url}/rest/v1/geojson_files?feeder_id=neq.0"
+        delete_response = requests.delete(delete_url, headers=headers)
+        if delete_response.status_code != 204:
+            print(f"Error deleting existing records from final table: {delete_response.status_code} - {delete_response.text}")
+            return False
+
         # Fetch data from the landing table
         landing_response = requests.get(f"{supabase_url}/rest/v1/landing_geojson_files", headers=headers)
         if landing_response.status_code == 200:
