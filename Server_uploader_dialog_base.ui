@@ -19,13 +19,13 @@
         background-color: #f0f0f0;
     }
     QPushButton {
-        background-color: #4CAF50;
-        color: white;
+        background-color: #FFD700;
+        color: black;
         border-radius: 5px;
         padding: 10px;
     }
     QPushButton:hover {
-        background-color: #45a049;
+        background-color: #FFD700;
     }
     QLabel {
         font-size: 14px;
