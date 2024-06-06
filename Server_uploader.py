@@ -329,46 +329,50 @@ class Server_uploader:
 
 
     def check_button_clicked(self):
-        layer_name = "Nieuwe voedingen-stadsplan"
-        layer = QgsProject.instance().mapLayersByName(layer_name)
+        layer_name = QSettings().value('Server_uploader/LayerName', '')
 
-        if layer:
-            layer = layer[0]
-            unique_errors = self.check_unique_ids(layer)
-            null_errors = self.check_non_null_ids(layer)
+        if layer_name:
 
-            # Display results in the text box
-            self.textbox1.clear()
-            if unique_errors:
-                unique_check_result = "❌ Unique ID Check: Failed"
+            layer = QgsProject.instance().mapLayersByName(layer_name)
+
+            if layer:
+                layer = layer[0]
+                unique_errors = self.check_unique_ids(layer)
+                null_errors = self.check_non_null_ids(layer)
+
+                # Display results in the text box
+                self.textbox1.clear()
+                if unique_errors:
+                    unique_check_result = "❌ Unique ID Check: Failed"
+                else:
+                    unique_check_result = "✔️ Unique ID Check: Passed"
+
+                if null_errors:
+                    non_null_check_result = "❌ Non-NULL ID Check: Failed"
+                else:
+                    non_null_check_result = "✔️ Non-NULL ID Check: Passed"
+
+                self.textbox1.append(unique_check_result)
+                self.textbox1.append(non_null_check_result)
+
+                # Create error layers
+                if unique_errors:
+                    self.create_error_layer("No unique ID's", layer, unique_errors)
+                if null_errors:
+                    self.create_error_layer("ID's with null values", layer, null_errors)
+
+                if unique_errors or null_errors:
+                    self.show_error_message("Errors detected, check Errors layer group.")
+                    return True
+                else:
+                    self.show_information_message("No errors detected in layer.")
+                    return False
             else:
-                unique_check_result = "✔️ Unique ID Check: Passed"
-
-            if null_errors:
-                non_null_check_result = "❌ Non-NULL ID Check: Failed"
-            else:
-                non_null_check_result = "✔️ Non-NULL ID Check: Passed"
-
-            self.textbox1.append(unique_check_result)
-            self.textbox1.append(non_null_check_result)
-
-            # Create error layers
-            if unique_errors:
-                self.create_error_layer("No unique ID's", layer, unique_errors)
-            if null_errors:
-                self.create_error_layer("ID's with null values", layer, null_errors)
-
-            if unique_errors or null_errors:
-                self.show_error_message("Errors detected, check Errors layer group.")
+                print(f"Layer '{layer_name}' not found.")
+                self.show_error_message(f"Layer '{layer_name}' not found.")
                 return True
-            else:
-                self.show_information_message("No errors detected in layer.")
-                return False
         else:
-            print(f"Layer '{layer_name}' not found.")
-            self.show_error_message(f"Layer '{layer_name}' not found.")
-            return True
-
+            QMessageBox.warning(None, "Check", "No layer name provided")
 
 
     def perform_upload(self, geojson_features):
@@ -420,69 +424,92 @@ class Server_uploader:
         return upload_success
 
     def upload_to_server_button_clicked(self):
-        layer_name = "Nieuwe voedingen-stadsplan"
-        layers = QgsProject.instance().mapLayersByName(layer_name)
+        layer_name = QSettings().value('Server_uploader/LayerName', '')
 
-        if layers:
-            layer = layers[0]
+        if layer_name:
 
-            # Perform both checks
-            unique_errors = self.check_unique_ids(layer)
-            null_errors = self.check_non_null_ids(layer)
+            layers = QgsProject.instance().mapLayersByName(layer_name)
 
-            if unique_errors or null_errors:
-                self.show_error_message("Errors detected in the layer. Upload cannot proceed.")
-                return
+            if layers:
+                layer = layers[0]
 
-            # Convert layer features to GeoJSON features
-            geojson_features = []
-            for feature in layer.getFeatures():
-                properties = {}
-                for field in feature.fields():
-                    value = feature[field.name()]
-                    if isinstance(value, QVariant):
-                        value = None if value.isNull() else value.value()
-                    properties[field.name()] = value
+                # Perform both checks
+                unique_errors = self.check_unique_ids(layer)
+                null_errors = self.check_non_null_ids(layer)
 
-                wkt_geometry = feature.geometry().asWkt()
-                shapely_geometry = shape({"type": "Point", "coordinates": (0, 0)})
-                try:
-                    shapely_geometry = wkt.loads(wkt_geometry)
-                except Exception as e:
-                    print(f"Error converting geometry to Shapely: {e}")
-                geojson_geometry = mapping(shapely_geometry)
+                if unique_errors or null_errors:
+                    self.show_error_message("Errors detected in the layer. Upload cannot proceed.")
+                    return
 
-                geojson_feature = {
-                    "type": "Feature",
-                    "properties": properties,
-                    "geometry": geojson_geometry
-                }
-                geojson_features.append(geojson_feature)
+                # Convert layer features to GeoJSON features
+                geojson_features = []
+                for feature in layer.getFeatures():
+                    properties = {}
+                    for field in feature.fields():
+                        value = feature[field.name()]
+                        if isinstance(value, QVariant):
+                            value = None if value.isNull() else value.value()
+                        properties[field.name()] = value
 
-            # Perform the upload
-            upload_success = self.perform_upload(geojson_features)
+                    wkt_geometry = feature.geometry().asWkt()
+                    shapely_geometry = shape({"type": "Point", "coordinates": (0, 0)})
+                    try:
+                        shapely_geometry = wkt.loads(wkt_geometry)
+                    except Exception as e:
+                        print(f"Error converting geometry to Shapely: {e}")
+                    geojson_geometry = mapping(shapely_geometry)
 
-            if upload_success:
-                self.show_information_message("Upload completed successfully.")
+                    geojson_feature = {
+                        "type": "Feature",
+                        "properties": properties,
+                        "geometry": geojson_geometry
+                    }
+                    geojson_features.append(geojson_feature)
+
+                # Perform the upload
+                upload_success = self.perform_upload(geojson_features)
+
+                if upload_success:
+                    self.show_information_message("Upload completed successfully.")
+                else:
+                    self.show_error_message("Some errors occurred during upload.")
             else:
-                self.show_error_message("Some errors occurred during upload.")
+                print(f"Layer '{layer_name}' not found.")
+                self.show_error_message(f"Layer '{layer_name}' not found.")
         else:
-            print(f"Layer '{layer_name}' not found.")
-            self.show_error_message(f"Layer '{layer_name}' not found.")
+            QMessageBox.warning(None, "Check", "No layer name provided")
 
-    
+
     def settings_button_clicked(self):
         """Functionality for Settings button."""
-        # Hide the other text boxes and show the settings box
+        # Load the saved layer name
+        layer_name = QSettings().value('Server_uploader/LayerName', '')
+
+        # Populate the combo box with current layer names in the project
+        self.dlg.LayerNameInput.clear()
+        layers = QgsProject.instance().mapLayers().values()
+        for layer in layers:
+            self.dlg.LayerNameInput.addItem(layer.name())
+
+        # Set the current layer name in the combo box
+        if layer_name:
+            index = self.dlg.LayerNameInput.findText(layer_name)
+            if index != -1:
+                self.dlg.LayerNameInput.setCurrentIndex(index)
+
         self.dlg.TextBox1.setVisible(False)
         self.dlg.TextBox2.setVisible(False)
         self.dlg.SettingsBox.setVisible(True)
-    
-    
+
+
     def savesettings_button_clicked(self):
-        """Functionality for Save button."""
-        # Implement your settings saving functionality here
-        QMessageBox.information(None, "Save Settings", "Settings saved")
+        layer_name = self.dlg.LayerNameInput.currentText()
+        if layer_name:
+            # Save the layer name to QSettings for persistence
+            QSettings().setValue('Server_uploader/LayerName', layer_name)
+            QMessageBox.information(None, "Save Settings", f"Layer name '{layer_name}' saved")
+        else:
+            QMessageBox.warning(None, "Save Settings", "Layer name cannot be empty")
 
 
     def returnsettings_button_clicked(self):
