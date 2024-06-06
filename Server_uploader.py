@@ -98,6 +98,8 @@ class Server_uploader:
         # Must be set in initGui() to survive plugin reloads
         self.first_start = None
 
+        
+
     # noinspection PyMethodMayBeStatic
     def tr(self, message):
         """Get the translation for a string using Qt translation API.
@@ -228,6 +230,17 @@ class Server_uploader:
             upload_button.clicked.connect(self.upload_to_server_button_clicked)
 
             self.textbox1 = self.dlg.TextBox1
+
+            settings_button = self.dlg.findChild(QPushButton, "Settings")
+            settings_button.clicked.connect(self.settings_button_clicked)
+
+            savesettings_button = self.dlg.findChild(QPushButton, "SaveSettings")
+            savesettings_button.clicked.connect(self.savesettings_button_clicked)
+
+            returnsettings_button = self.dlg.findChild(QPushButton, "ReturnSettings")
+            returnsettings_button.clicked.connect(self.returnsettings_button_clicked)
+
+            self.dlg.SettingsBox.setVisible(False)
 
         # show the dialog
         self.dlg.show()
@@ -456,6 +469,29 @@ class Server_uploader:
         else:
             print(f"Layer '{layer_name}' not found.")
             self.show_error_message(f"Layer '{layer_name}' not found.")
+
+    
+    def settings_button_clicked(self):
+        """Functionality for Settings button."""
+        # Hide the other text boxes and show the settings box
+        self.dlg.TextBox1.setVisible(False)
+        self.dlg.TextBox2.setVisible(False)
+        self.dlg.SettingsBox.setVisible(True)
+    
+    
+    def savesettings_button_clicked(self):
+        """Functionality for Save button."""
+        # Implement your settings saving functionality here
+        QMessageBox.information(None, "Save Settings", "Settings saved")
+
+
+    def returnsettings_button_clicked(self):
+        """Functionality for Return button."""
+        # Show the other text boxes and hide the settings box
+        self.dlg.TextBox1.setVisible(True)
+        self.dlg.TextBox2.setVisible(True)
+        self.dlg.SettingsBox.setVisible(False)
+
 
     def show_error_message(self, message):
         """Displays an error message to the user"""
