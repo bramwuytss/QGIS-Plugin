@@ -98,7 +98,7 @@ class Server_uploader:
         # Check if plugin was started the first time in current QGIS session
         # Must be set in initGui() to survive plugin reloads
         self.first_start = None
-    
+
     # noinspection PyMethodMayBeStatic
     def tr(self, message):
         """Get the translation for a string using Qt translation API.
@@ -384,7 +384,7 @@ class Server_uploader:
         else:
             QMessageBox.warning(None, "Check", "No layer name provided")
 
-    def perform_upload_to_landing_table(self, geojson_features):
+    def perform_upload_to_landing_table(self, geojson_features, table_name):
         supabase_url = "https://vckjtooglwrxxmwcyyeo.supabase.co"
         service_role_api_key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZja2p0b29nbHdyeHhtd2N5eWVvIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTcxNTc2Nzg3MiwiZXhwIjoyMDMxMzQzODcyfQ.sa090Kgdfn357eTGO1kLIwoJj4zQ1cEuwCdjVP1CzN8"
         headers = {
@@ -393,19 +393,19 @@ class Server_uploader:
             "Content-Type": "application/json"
         }
 
-        # Delete all existing records from the landing table
-        delete_url = f"{supabase_url}/rest/v1/landing_geojson_files?feeder_id=neq.0"
+        # Delete existing records from the landing table
+        delete_url = f"{supabase_url}/rest/v1/{table_name}?id=neq.0"
         delete_response = requests.delete(delete_url, headers=headers)
         if delete_response.status_code != 204:
             print(f"Error deleting existing records: {delete_response.status_code} - {delete_response.text}")
             self.show_error_message("Error deleting existing records from landing table.")
             return False
 
-        # Perform upload to landing table
-        upload_success = self.perform_upload(geojson_features, supabase_url, headers, "landing_geojson_files")
+        # Upload new geojson features
+        upload_success = self.perform_upload(geojson_features, supabase_url, headers, table_name)
         return upload_success
 
-    def perform_upload_to_final_table(self):
+    def perform_upload_to_final_table(self, landing_table_name, final_table_name):
         supabase_url = "https://vckjtooglwrxxmwcyyeo.supabase.co"
         service_role_api_key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZja2p0b29nbHdyeHhtd2N5eWVvIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTcxNTc2Nzg3MiwiZXhwIjoyMDMxMzQzODcyfQ.sa090Kgdfn357eTGO1kLIwoJj4zQ1cEuwCdjVP1CzN8"
         headers = {
@@ -414,59 +414,74 @@ class Server_uploader:
             "Content-Type": "application/json"
         }
 
-        # Perform delete operation to clear existing records in the final table
-        delete_url = f"{supabase_url}/rest/v1/geojson_files?feeder_id=neq.0"
+        # Delete existing records from the final table
+        delete_url = f"{supabase_url}/rest/v1/{final_table_name}?id=neq.0"
         delete_response = requests.delete(delete_url, headers=headers)
         if delete_response.status_code != 204:
-            print(f"Error deleting existing records from final table: {delete_response.status_code} - {delete_response.text}")
+            print(
+                f"Error deleting existing records from final table: {delete_response.status_code} - {delete_response.text}")
             return False
 
         # Fetch data from the landing table
-        landing_response = requests.get(f"{supabase_url}/rest/v1/landing_geojson_files", headers=headers)
+        landing_response = requests.get(f"{supabase_url}/rest/v1/{landing_table_name}", headers=headers)
         if landing_response.status_code == 200:
             landing_data = landing_response.json()
         else:
             print("Error fetching records from landing table.")
             return False
 
-        # Insert data into the final table
-        insert_response = requests.post(f"{supabase_url}/rest/v1/geojson_files", json=landing_data, headers=headers)
-        if insert_response.status_code == 201:
-            print("Data copied to final table successfully.")
+        # Directly copy data from landing table to final table
+        final_copy_url = f"{supabase_url}/rest/v1/{final_table_name}"
+        copy_response = requests.post(final_copy_url, json=landing_data, headers=headers)
+        if copy_response.status_code == 201:
+            print("Data copied from landing table to final table successfully.")
             return True
         else:
-            print(f"Error copying data to final table: {insert_response.status_code} - {insert_response.text}")
+            print(
+                f"Error copying data from landing table to final table: {copy_response.status_code} - {copy_response.text}")
             return False
 
     def perform_upload(self, geojson_features, supabase_url, headers, table_name):
-        # Fetch existing feeder_ids
-        response = requests.get(f"{supabase_url}/rest/v1/{table_name}?select=feeder_id", headers=headers)
+        # Determine the field name based on the table name
+        if 'switch' in table_name:
+            field_name = 'switch_id'
+        else:
+            field_name = 'feeder_id'
+
+        # Fetch existing IDs
+        response = requests.get(f"{supabase_url}/rest/v1/{table_name}?select={field_name}", headers=headers)
         if response.status_code == 200:
             try:
-                existing_feeder_ids = {item['feeder_id'] for item in response.json()}
+                existing_ids = {item[field_name] for item in response.json()}
             except ValueError as e:
                 print(f"Error parsing JSON response: {e}")
-                self.show_error_message("Error parsing existing feeder_ids response.")
+                self.show_error_message("Error parsing existing IDs response.")
                 return False
         else:
-            print(f"Error fetching existing feeder_ids: {response.status_code} - {response.text}")
-            self.show_error_message("Error fetching existing feeder_ids.")
+            print(f"Error fetching existing IDs: {response.status_code} - {response.text}")
+            self.show_error_message("Error fetching existing IDs.")
             return False
 
         upload_success = True
         for geojson_feature in geojson_features:
-            properties = geojson_feature["properties"]
-            insert_data = {prop_name: prop_value for prop_name, prop_value in properties.items()}
-            insert_data["geometry"] = geojson_feature["geometry"]
-            insert_data_str = json.dumps(insert_data)
-            feeder_id = properties.get("feeder_id")
+            # Check if 'properties' key exists
+            if 'properties' in geojson_feature:
+                properties = geojson_feature["properties"]
+                insert_data = {prop_name: prop_value for prop_name, prop_value in properties.items()}
+                insert_data["geometry"] = geojson_feature["geometry"]
+            else:
+                # If 'properties' key does not exist, use the flat structure
+                insert_data = geojson_feature
 
-            if feeder_id in existing_feeder_ids:
-                url = f"{supabase_url}/rest/v1/{table_name}?feeder_id=eq.{feeder_id}"
+            insert_data_str = json.dumps(insert_data)
+            feature_id = insert_data.get(field_name)
+
+            if feature_id in existing_ids:
+                url = f"{supabase_url}/rest/v1/{table_name}?{field_name}=eq.{feature_id}"
                 response = requests.patch(url, data=insert_data_str, headers=headers)
                 if response.status_code != 204:
                     print(
-                        f"Error updating GeoJSON data for feeder_id {feeder_id}. Status code: {response.status_code}, Response: {response.text}")
+                        f"Error updating GeoJSON data for {field_name} {feature_id}. Status code: {response.status_code}, Response: {response.text}")
                     upload_success = False
             else:
                 url = f"{supabase_url}/rest/v1/{table_name}"
@@ -488,44 +503,31 @@ class Server_uploader:
             if layers:
                 layer = layers[0]
 
-                # Perform both checks
-                unique_errors = self.check_unique_ids(layer)
-                null_errors = self.check_non_null_ids(layer)
+                if layer_name == "Nieuwe voedingen-stadsplan":
+                    field_name = "feeder_id"
+                    landing_table_name = "landing_geojson_files"
+                    final_table_name = "geojson_files"
+                elif layer_name == "BL-schakelaars-zone":
+                    field_name = "switch_id"
+                    landing_table_name = "switches_landing_table"
+                    final_table_name = "switches_final_table"
+                else:
+                    self.show_error_message(f"Unknown layer '{layer_name}' selected.")
+                    return
+
+                unique_errors = self.check_unique_ids(layer, field_name)
+                null_errors = self.check_non_null_ids(layer, field_name)
 
                 if unique_errors or null_errors:
                     self.show_error_message("Errors detected in the layer. Upload cannot proceed.")
                     return
 
-                # Convert layer features to GeoJSON features
-                geojson_features = []
-                for feature in layer.getFeatures():
-                    properties = {}
-                    for field in feature.fields():
-                        value = feature[field.name()]
-                        if isinstance(value, QVariant):
-                            value = None if value.isNull() else value.value()
-                        properties[field.name()] = value
+                geojson_features = self.convert_layer_features_to_geojson(layer)
 
-                    wkt_geometry = feature.geometry().asWkt()
-                    shapely_geometry = shape({"type": "Point", "coordinates": (0, 0)})
-                    try:
-                        shapely_geometry = wkt_loads(wkt_geometry)
-                    except Exception as e:
-                        print(f"Error converting geometry to Shapely: {e}")
-                    geojson_geometry = mapping(shapely_geometry)
-
-                    geojson_feature = {
-                        "type": "Feature",
-                        "properties": properties,
-                        "geometry": geojson_geometry
-                    }
-                    geojson_features.append(geojson_feature)
-
-                # Perform the upload
-                upload_success = self.perform_upload_to_landing_table(geojson_features)
+                upload_success = self.perform_upload_to_landing_table(geojson_features, landing_table_name)
 
                 if upload_success:
-                    self.compare_landing_and_final_tables()
+                    self.compare_landing_and_final_tables(landing_table_name, final_table_name)
                 else:
                     self.show_error_message("Some errors occurred during upload.")
             else:
@@ -542,19 +544,33 @@ class Server_uploader:
             if layers:
                 layer = layers[0]
 
-                # Perform the upload to final table
-                upload_success = self.perform_upload_to_final_table()
+                if layer_name == "Nieuwe voedingen-stadsplan":
+                    landing_table_name = "landing_geojson_files"
+                    final_table_name = "geojson_files"
+                elif layer_name == "BL-schakelaars-zone":
+                    landing_table_name = "switches_landing_table"
+                    final_table_name = "switches_final_table"
+                else:
+                    self.show_error_message(f"Unknown layer '{layer_name}' selected.")
+                    return
+
+                upload_success = self.perform_upload_to_final_table(landing_table_name, final_table_name)
 
                 if upload_success:
                     self.show_information_message("Upload to final table completed successfully.")
                 else:
                     self.show_error_message("Some errors occurred during upload to final table.")
+            else:
+                print(f"Layer '{layer_name}' not found.")
+                self.show_error_message(f"Layer '{layer_name}' not found.")
         else:
-            print(f"Layer '{layer_name}' not found.")
-            self.show_error_message(f"Layer '{layer_name}' not found.")
+            print(f"Layer name not found in settings.")
+            self.show_error_message("No layer name provided in settings.")
 
     def convert_layer_features_to_geojson(self, layer):
         geojson_features = []
+        layer_name = QSettings().value('Server_uploader/LayerName', '')
+
         for feature in layer.getFeatures():
             properties = {}
             for field in feature.fields():
@@ -564,11 +580,18 @@ class Server_uploader:
                 properties[field.name()] = value
 
             wkt_geometry = feature.geometry().asWkt()
-            shapely_geometry = shape({"type": "Point", "coordinates": (0, 0)})
             try:
-                shapely_geometry = wkt_loads(wkt_geometry)
-            except Exception as e:  # Correct indentation
+                if layer_name == "Nieuwe voedingen-stadsplan":
+                    shapely_geometry = wkt_loads(wkt_geometry)
+                elif layer_name == "BL-schakelaars-zone":
+                    shapely_geometry = wkt_loads(wkt_geometry.replace('POINT Z', 'POINT'))
+                else:
+                    print(f"Unknown layer '{layer_name}' for geometry processing.")
+                    continue
+            except Exception as e:
                 print(f"Error converting geometry to Shapely: {e}")
+                continue
+
             geojson_geometry = mapping(shapely_geometry)
 
             geojson_feature = {
@@ -580,7 +603,7 @@ class Server_uploader:
 
         return geojson_features
 
-    def compare_landing_and_final_tables(self):
+    def compare_landing_and_final_tables(self, landing_table_name, final_table_name):
         supabase_url = "https://vckjtooglwrxxmwcyyeo.supabase.co"
         service_role_api_key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZja2p0b29nbHdyeHhtd2N5eWVvIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTcxNTc2Nzg3MiwiZXhwIjoyMDMxMzQzODcyfQ.sa090Kgdfn357eTGO1kLIwoJj4zQ1cEuwCdjVP1CzN8"
         headers = {
@@ -588,73 +611,63 @@ class Server_uploader:
             "Authorization": f"Bearer {service_role_api_key}",
             "Content-Type": "application/json"
         }
-        landing_table = "landing_geojson_files"
-        final_table = "geojson_files"
 
-        # Fetch all records from landing table
-        landing_response = requests.get(f"{supabase_url}/rest/v1/{landing_table}", headers=headers)
+        landing_response = requests.get(f"{supabase_url}/rest/v1/{landing_table_name}", headers=headers)
         if landing_response.status_code == 200:
             landing_records = landing_response.json()
         else:
             print("Error fetching records from landing table.")
             return
 
-        # Fetch all records from final table
-        final_response = requests.get(f"{supabase_url}/rest/v1/{final_table}", headers=headers)
+        final_response = requests.get(f"{supabase_url}/rest/v1/{final_table_name}", headers=headers)
         if final_response.status_code == 200:
             final_records = final_response.json()
         else:
             print("Error fetching records from final table.")
             return
 
-        # Create sets of feeder_ids
-        landing_feeder_ids = {record['feeder_id'] for record in landing_records}
-        final_feeder_ids = {record['feeder_id'] for record in final_records}
+        # Determine field name based on table name
+        if 'switch' in landing_table_name:
+            field_name = 'switch_id'
+        else:
+            field_name = 'feeder_id'
 
-        # Find added and deleted feeder_ids
-        added_feeder_ids = landing_feeder_ids - final_feeder_ids
-        deleted_feeder_ids = final_feeder_ids - landing_feeder_ids
+        landing_ids = {record[field_name] for record in landing_records}
+        final_ids = {record[field_name] for record in final_records}
 
-        # Initialize count for changed records
+        added_ids = landing_ids - final_ids
+        deleted_ids = final_ids - landing_ids
+
         changed_records_count = 0
 
-        # Find changed records
         for landing_record in landing_records:
-            feeder_id = landing_record["feeder_id"]
-            if feeder_id in final_feeder_ids:
-                final_record = next(record for record in final_records if record["feeder_id"] == feeder_id)
-                # Compare attributes to detect changes, excluding 'id' and 'created_at'
+            record_id = landing_record[field_name]
+            if record_id in final_ids:
+                final_record = next(record for record in final_records if record[field_name] == record_id)
                 if not self.records_are_equal(landing_record, final_record):
                     changed_records_count += 1
 
-        # Results
-        result_message = f"Added records: {len(added_feeder_ids)}, " \
-                         f"Deleted records: {len(deleted_feeder_ids)}, " \
+        result_message = f"Added records: {len(added_ids)}, " \
+                         f"Deleted records: {len(deleted_ids)}, " \
                          f"Changed records: {changed_records_count}"
         self.textbox2.setText(result_message)
 
-        # Create Accept and Cancel buttons
         self.create_accept_cancel_buttons()
 
     def create_accept_cancel_buttons(self):
         print("Creating accept and cancel buttons...")
-        # Ensure buttons are properly removed
         self.remove_accept_cancel_buttons()
 
-        # Initialize a new layout
         self.layout = QVBoxLayout()
 
-        # Accept Changes Button
         self.accept_button = QPushButton("Accept Changes")
         self.accept_button.clicked.connect(self.accept_changes)
         self.layout.addWidget(self.accept_button)
 
-        # Cancel Button
         self.cancel_button = QPushButton("Cancel")
         self.cancel_button.clicked.connect(self.cancel_changes)
         self.layout.addWidget(self.cancel_button)
 
-        # Ensure the layout is set on the textbox2
         self.textbox2.setLayout(self.layout)
         print("Buttons created and added to the layout.")
 
@@ -670,8 +683,22 @@ class Server_uploader:
         print("Existing buttons removed.")
 
     def accept_changes(self):
-        print("Accept changes clicked.")
-        self.upload_to_final_table_button_clicked()
+        layer_name = QSettings().value('Server_uploader/LayerName', '')
+        if layer_name == "Nieuwe voedingen-stadsplan":
+            landing_table_name = "landing_geojson_files"
+            final_table_name = "geojson_files"
+        elif layer_name == "BL-schakelaars-zone":
+            landing_table_name = "switches_landing_table"
+            final_table_name = "switches_final_table"
+        else:
+            self.show_error_message(f"Unknown layer '{layer_name}' selected.")
+            return
+
+        upload_success = self.perform_upload_to_final_table(landing_table_name, final_table_name)
+        if upload_success:
+            self.show_information_message("Upload to final table completed successfully.")
+        else:
+            self.show_error_message("Some errors occurred during upload to final table.")
         self.remove_accept_cancel_buttons()
 
     def cancel_changes(self):
@@ -680,8 +707,7 @@ class Server_uploader:
         self.remove_accept_cancel_buttons()
 
     def records_are_equal(self, record1, record2):
-        # Normalize records by removing the feeder_id, id, and created_at fields
-        excluded_fields = {'feeder_id', 'id', 'created_at'}
+        excluded_fields = {'feeder_id', 'switch_id', 'id', 'created_at'}
         record1_normalized = {k: v for k, v in record1.items() if k not in excluded_fields}
         record2_normalized = {k: v for k, v in record2.items() if k not in excluded_fields}
         return record1_normalized == record2_normalized
