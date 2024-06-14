@@ -334,59 +334,81 @@ class Server_uploader:
             layer_tree_layer.setItemVisibilityChecked(True)
 
     def check_button_clicked(self):
-        layer_name = QSettings().value('Server_uploader/LayerName', '')
+        feeder_layer_name = QSettings().value('Server_uploader/FeederLayerName', '')
+        switch_layer_name = QSettings().value('Server_uploader/SwitchLayerName', '')
 
-        if layer_name:
-            layer = QgsProject.instance().mapLayersByName(layer_name)
+        if feeder_layer_name:
+            feeder_layer = QgsProject.instance().mapLayersByName(feeder_layer_name)
+            if feeder_layer:
+                feeder_layer = feeder_layer[0]
+                feeder_field_name = "feeder_id"  # Field name for the feeder layer
 
-            if layer:
-                layer = layer[0]
+                feeder_unique_errors = self.check_unique_ids(feeder_layer, feeder_field_name)
+                feeder_null_errors = self.check_non_null_ids(feeder_layer, feeder_field_name)
 
-                # Determine the field name based on the selected layer
-                if layer_name == "Nieuwe voedingen-stadsplan":
-                    field_name = "feeder_id"
-                elif layer_name == "BL-schakelaars-zone":
-                    field_name = "switch_id"
+                self.dlg.TextBox1.clear()
+                if feeder_unique_errors:
+                    feeder_unique_check_result = "❌ Unique ID Check (Feeder): Failed"
                 else:
-                    self.show_error_message(f"Unknown layer '{layer_name}' selected.")
-                    return True
+                    feeder_unique_check_result = "✔️ Unique ID Check (Feeder): Passed"
 
-                unique_errors = self.check_unique_ids(layer, field_name)
-                null_errors = self.check_non_null_ids(layer, field_name)
-
-                # Display results in the text box
-                self.textbox1.clear()
-                if unique_errors:
-                    unique_check_result = "❌ Unique ID Check: Failed"
+                if feeder_null_errors:
+                    feeder_non_null_check_result = "❌ Non-NULL ID Check (Feeder): Failed"
                 else:
-                    unique_check_result = "✔️ Unique ID Check: Passed"
+                    feeder_non_null_check_result = "✔️ Non-NULL ID Check (Feeder): Passed"
 
-                if null_errors:
-                    non_null_check_result = "❌ Non-NULL ID Check: Failed"
-                else:
-                    non_null_check_result = "✔️ Non-NULL ID Check: Passed"
+                self.dlg.TextBox1.append(feeder_unique_check_result)
+                self.dlg.TextBox1.append(feeder_non_null_check_result)
 
-                self.textbox1.append(unique_check_result)
-                self.textbox1.append(non_null_check_result)
-
-                # Create error layers
-                if unique_errors:
-                    self.create_error_layer("No unique ID's", layer, unique_errors)
-                if null_errors:
-                    self.create_error_layer("ID's with null values", layer, null_errors)
-
-                if unique_errors or null_errors:
-                    self.show_error_message("Errors detected, check Errors layer group.")
-                    return True
-                else:
-                    self.show_information_message("No errors detected in layer.")
-                    return False
+                if feeder_unique_errors:
+                    self.create_error_layer("No unique ID's (Feeder)", feeder_layer, feeder_unique_errors)
+                if feeder_null_errors:
+                    self.create_error_layer("ID's with null values (Feeder)", feeder_layer, feeder_null_errors)
             else:
-                print(f"Layer '{layer_name}' not found.")
-                self.show_error_message(f"Layer '{layer_name}' not found.")
+                self.show_error_message(f"Feeder layer '{feeder_layer_name}' not found.")
                 return True
         else:
-            QMessageBox.warning(None, "Check", "No layer name provided")
+            QMessageBox.warning(None, "Check", "No feeder layer name provided")
+
+        if switch_layer_name:
+            switch_layer = QgsProject.instance().mapLayersByName(switch_layer_name)
+            if switch_layer:
+                switch_layer = switch_layer[0]
+                switch_field_name = "switch_id"  # Field name for the switch layer
+
+                switch_unique_errors = self.check_unique_ids(switch_layer, switch_field_name)
+                switch_null_errors = self.check_non_null_ids(switch_layer, switch_field_name)
+
+                
+                if switch_unique_errors:
+                    switch_unique_check_result = "❌ Unique ID Check (Switch): Failed"
+                else:
+                    switch_unique_check_result = "✔️ Unique ID Check (Switch): Passed"
+
+                if switch_null_errors:
+                    switch_non_null_check_result = "❌ Non-NULL ID Check (Switch): Failed"
+                else:
+                    switch_non_null_check_result = "✔️ Non-NULL ID Check (Switch): Passed"
+
+                self.dlg.TextBox1.append(switch_unique_check_result)
+                self.dlg.TextBox1.append(switch_non_null_check_result)
+
+                if switch_unique_errors:
+                    self.create_error_layer("No unique ID's (Switch)", switch_layer, switch_unique_errors)
+                if switch_null_errors:
+                    self.create_error_layer("ID's with null values (Switch)", switch_layer, switch_null_errors)
+            else:
+                self.show_error_message(f"Switch layer '{switch_layer_name}' not found.")
+                return True
+        else:
+            QMessageBox.warning(None, "Check", "No switch layer name provided")
+
+        if not feeder_unique_errors and not feeder_null_errors and not switch_unique_errors and not switch_null_errors:
+            self.show_information_message("No errors detected in layers.")
+            return False
+        else:
+            self.show_error_message("Errors detected, check Errors layer group.")
+            return True
 
     def perform_upload_to_landing_table(self, geojson_features, table_name):
         supabase_url = "https://vckjtooglwrxxmwcyyeo.supabase.co"
@@ -767,33 +789,43 @@ class Server_uploader:
 
     def settings_button_clicked(self):
         """Functionality for Settings button."""
-        # Load the saved layer name
-        layer_name = QSettings().value('Server_uploader/LayerName', '')
+        # Load the saved layer names
+        feeder_layer_name = QSettings().value('Server_uploader/FeederLayerName', '')
+        switch_layer_name = QSettings().value('Server_uploader/SwitchLayerName', '')
 
-        # Populate the combo box with current layer names in the project
-        self.dlg.LayerNameInput.clear()
+        # Populate the combo boxes with current layer names in the project
+        self.dlg.FeederLayerInput.clear()
+        self.dlg.SwitchLayerInput.clear()
         layers = QgsProject.instance().mapLayers().values()
         for layer in layers:
-            self.dlg.LayerNameInput.addItem(layer.name())
+            self.dlg.FeederLayerInput.addItem(layer.name())
+            self.dlg.SwitchLayerInput.addItem(layer.name())
 
-        # Set the current layer name in the combo box
-        if layer_name:
-            index = self.dlg.LayerNameInput.findText(layer_name)
+        # Set the current layer names in the combo boxes
+        if feeder_layer_name:
+            index = self.dlg.FeederLayerInput.findText(feeder_layer_name)
             if index != -1:
-                self.dlg.LayerNameInput.setCurrentIndex(index)
+                self.dlg.FeederLayerInput.setCurrentIndex(index)
+
+        if switch_layer_name:
+            index = self.dlg.SwitchLayerInput.findText(switch_layer_name)
+            if index != -1:
+                self.dlg.SwitchLayerInput.setCurrentIndex(index)
 
         self.dlg.TextBox1.setVisible(False)
         self.dlg.TextBox2.setVisible(False)
         self.dlg.SettingsBox.setVisible(True)
 
     def savesettings_button_clicked(self):
-        layer_name = self.dlg.LayerNameInput.currentText()
-        if layer_name:
-            # Save the layer name to QSettings for persistence
-            QSettings().setValue('Server_uploader/LayerName', layer_name)
-            QMessageBox.information(None, "Save Settings", f"Layer name '{layer_name}' saved")
+        feeder_layer_name = self.dlg.FeederLayerInput.currentText()
+        switch_layer_name = self.dlg.SwitchLayerInput.currentText()
+        if feeder_layer_name and switch_layer_name:
+            # Save the layer names to QSettings for persistence
+            QSettings().setValue('Server_uploader/FeederLayerName', feeder_layer_name)
+            QSettings().setValue('Server_uploader/SwitchLayerName', switch_layer_name)
+            QMessageBox.information(None, "Save Settings", f"Feeder layer '{feeder_layer_name}' and switch layer '{switch_layer_name}' saved")
         else:
-            QMessageBox.warning(None, "Save Settings", "Layer name cannot be empty")
+            QMessageBox.warning(None, "Save Settings", "Layer names cannot be empty")
 
     def returnsettings_button_clicked(self):
         """Functionality for Return button."""

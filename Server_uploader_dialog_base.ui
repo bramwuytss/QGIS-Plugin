@@ -142,12 +142,22 @@
       <item>
        <widget class="QLabel" name="CurrentLayerLabel">
         <property name="text">
-         <string>Current layer:</string>
+         <string>Current Feeder layer:</string>
         </property>
        </widget>
       </item>
       <item>
-       <widget class="QComboBox" name="LayerNameInput"/>
+        <widget class="QComboBox" name="FeederLayerInput"/>
+      </item>
+      <item>
+       <widget class="QLabel" name="CurrentSwitchLayerLabel">
+        <property name="text">
+         <string>Current Switch layer:</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QComboBox" name="SwitchLayerInput"/>
       </item>
       <item>
        <layout class="QHBoxLayout" name="settingsButtonLayout">
