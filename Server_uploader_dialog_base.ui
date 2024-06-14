@@ -107,6 +107,13 @@
        </property>
       </widget>
      </item>
+     <item>
+      <widget class="QPushButton" name="GetShapefiles">
+       <property name="text">
+        <string>Get shapefiles</string>
+       </property>
+      </widget>
+     </item>
     </layout>
    </item>
    <item row="1" column="1">
