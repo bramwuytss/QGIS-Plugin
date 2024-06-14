@@ -41,6 +41,8 @@ import shutil
 import sys
 # from typing import Dict, List, Union
 from shapely.wkt import loads as wkt_loads
+from PyQt5.QtWidgets import QDialog, QVBoxLayout, QTextEdit, QPushButton
+
 
 # from dataclasses import dataclass
 
@@ -75,6 +77,8 @@ class Server_uploader:
             application at run time.
         :type iface: QgsInterface
         """
+        super().__init__()
+        self.layout = None
         # Save reference to the QGIS interface
         self.iface = iface
         # initialize plugin directory
@@ -638,27 +642,52 @@ class Server_uploader:
         added_ids = landing_ids - final_ids
         deleted_ids = final_ids - landing_ids
 
-        changed_records_count = 0
+        changed_records = []
 
         for landing_record in landing_records:
             record_id = landing_record[field_name]
             if record_id in final_ids:
                 final_record = next(record for record in final_records if record[field_name] == record_id)
                 if not self.records_are_equal(landing_record, final_record):
-                    changed_records_count += 1
+                    changed_records.append((landing_record, final_record))
+
+        self.display_changes(added_ids, deleted_ids, changed_records, landing_records, final_records, field_name)
+        self.create_accept_cancel_buttons()
+
+    def display_changes(self, added_ids, deleted_ids, changed_records, landing_records, final_records, field_name):
+        added_records = [record for record in landing_records if record[field_name] in added_ids]
+        deleted_records = [record for record in final_records if record[field_name] in deleted_ids]
 
         result_message = f"Added records: {len(added_ids)}, " \
                          f"Deleted records: {len(deleted_ids)}, " \
-                         f"Changed records: {changed_records_count}"
+                         f"Changed records: {len(changed_records)}"
+
         self.textbox2.setText(result_message)
 
-        self.create_accept_cancel_buttons()
+        details_message = "<h2>Added Records:</h2>"
+        for record in added_records:
+            details_message += f"<pre>{self.format_record(record)}</pre>"
+
+        details_message += "<h2>Deleted Records:</h2>"
+        for record in deleted_records:
+            details_message += f"<pre>{self.format_record(record)}</pre>"
+
+        details_message += "<h2>Changed Records:</h2>"
+        for before, after in changed_records:
+            details_message += f"<h3>Before:</h3><pre>{self.format_record(before)}</pre>"
+            details_message += f"<h3>After:</h3><pre>{self.format_record(after)}</pre>"
+
+        self.details_message = details_message  # Store details message for later use
 
     def create_accept_cancel_buttons(self):
-        print("Creating accept and cancel buttons...")
+        print("Creating accept, cancel, and show changes buttons...")
         self.remove_accept_cancel_buttons()
 
         self.layout = QVBoxLayout()
+
+        self.show_changes_button = QPushButton("Show Changes")
+        self.show_changes_button.clicked.connect(self.show_details_in_qgis)
+        self.layout.addWidget(self.show_changes_button)
 
         self.accept_button = QPushButton("Accept Changes")
         self.accept_button.clicked.connect(self.accept_changes)
@@ -670,6 +699,30 @@ class Server_uploader:
 
         self.textbox2.setLayout(self.layout)
         print("Buttons created and added to the layout.")
+
+    def show_details_in_qgis(self):
+        details_dialog = QDialog()
+        details_dialog.setWindowTitle("Change Details")
+
+        layout = QVBoxLayout()
+        text_edit = QTextEdit()
+        text_edit.setReadOnly(True)
+        text_edit.setHtml(self.details_message)  # Use HTML for better formatting
+        layout.addWidget(text_edit)
+
+        # Increase the size of the dialog box
+        details_dialog.resize(800, 600)  # Adjust size as per your requirement
+
+        close_button = QPushButton("Close")
+        close_button.clicked.connect(details_dialog.accept)
+        layout.addWidget(close_button)
+
+        details_dialog.setLayout(layout)
+        details_dialog.exec_()
+
+    def format_record(self, record):
+        formatted = "<br>".join(f"{key}: {value}" for key, value in record.items())
+        return formatted
 
     def remove_accept_cancel_buttons(self):
         print("Removing existing buttons...")
