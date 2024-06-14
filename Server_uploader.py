@@ -42,8 +42,7 @@ import sys
 # from typing import Dict, List, Union
 from shapely.wkt import loads as wkt_loads
 from PyQt5.QtWidgets import QDialog, QVBoxLayout, QTextEdit, QPushButton
-
-
+from supabase import create_client, Client
 # from dataclasses import dataclass
 
 
@@ -102,6 +101,9 @@ class Server_uploader:
         # Check if plugin was started the first time in current QGIS session
         # Must be set in initGui() to survive plugin reloads
         self.first_start = None
+        self.supabase_url = "https://vckjtooglwrxxmwcyyeo.supabase.co"
+        self.service_role_api_key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZja2p0b29nbHdyeHhtd2N5eWVvIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTcxNTc2Nzg3MiwiZXhwIjoyMDMxMzQzODcyfQ.sa090Kgdfn357eTGO1kLIwoJj4zQ1cEuwCdjVP1CzN8"
+        self.supabase = create_client(self.supabase_url, self.service_role_api_key)
 
     # noinspection PyMethodMayBeStatic
     def tr(self, message):
@@ -379,7 +381,6 @@ class Server_uploader:
                 switch_unique_errors = self.check_unique_ids(switch_layer, switch_field_name)
                 switch_null_errors = self.check_non_null_ids(switch_layer, switch_field_name)
 
-                
                 if switch_unique_errors:
                     switch_unique_check_result = "❌ Unique ID Check (Switch): Failed"
                 else:
@@ -432,24 +433,21 @@ class Server_uploader:
         return upload_success
 
     def perform_upload_to_final_table(self, landing_table_name, final_table_name):
-        supabase_url = "https://vckjtooglwrxxmwcyyeo.supabase.co"
-        service_role_api_key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZja2p0b29nbHdyeHhtd2N5eWVvIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTcxNTc2Nzg3MiwiZXhwIjoyMDMxMzQzODcyfQ.sa090Kgdfn357eTGO1kLIwoJj4zQ1cEuwCdjVP1CzN8"
         headers = {
-            "apikey": service_role_api_key,
-            "Authorization": f"Bearer {service_role_api_key}",
+            "apikey": self.service_role_api_key,
+            "Authorization": f"Bearer {self.service_role_api_key}",
             "Content-Type": "application/json"
         }
 
         # Delete existing records from the final table
-        delete_url = f"{supabase_url}/rest/v1/{final_table_name}?id=neq.0"
+        delete_url = f"{self.supabase_url}/rest/v1/{final_table_name}?id=neq.0"
         delete_response = requests.delete(delete_url, headers=headers)
         if delete_response.status_code != 204:
-            print(
-                f"Error deleting existing records from final table: {delete_response.status_code} - {delete_response.text}")
+            print(f"Error deleting existing records from final table: {delete_response.status_code} - {delete_response.text}")
             return False
 
         # Fetch data from the landing table
-        landing_response = requests.get(f"{supabase_url}/rest/v1/{landing_table_name}", headers=headers)
+        landing_response = requests.get(f"{self.supabase_url}/rest/v1/{landing_table_name}", headers=headers)
         if landing_response.status_code == 200:
             landing_data = landing_response.json()
         else:
@@ -457,15 +455,28 @@ class Server_uploader:
             return False
 
         # Directly copy data from landing table to final table
-        final_copy_url = f"{supabase_url}/rest/v1/{final_table_name}"
+        final_copy_url = f"{self.supabase_url}/rest/v1/{final_table_name}"
         copy_response = requests.post(final_copy_url, json=landing_data, headers=headers)
-        if copy_response.status_code == 201:
-            print("Data copied from landing table to final table successfully.")
-            return True
-        else:
-            print(
-                f"Error copying data from landing table to final table: {copy_response.status_code} - {copy_response.text}")
+        if copy_response.status_code != 201:
+            print(f"Error copying data from landing table to final table: {copy_response.status_code} - {copy_response.text}")
             return False
+
+        # Collect shapefile paths
+        layer_name = QSettings().value('Server_uploader/LayerName', '')
+        layers = QgsProject.instance().mapLayersByName(layer_name)
+        if layers:
+            layer = layers[0]
+            shapefile_paths = [layer.source().replace(".shp", ext) for ext in [".shp", ".shx", ".dbf", ".prj"]]
+
+            # Upload shapefiles to Supabase Storage
+            shapefile_upload_success = self.upload_shapefiles_to_storage(layer_name, shapefile_paths)
+
+            if not shapefile_upload_success:
+                print("Error uploading shapefiles to storage.")
+                return False
+
+        print("Data copied from landing table to final table and shapefiles uploaded successfully.")
+        return True
 
     def perform_upload(self, geojson_features, supabase_url, headers, table_name):
         # Determine the field name based on the table name
@@ -583,15 +594,31 @@ class Server_uploader:
                 upload_success = self.perform_upload_to_final_table(landing_table_name, final_table_name)
 
                 if upload_success:
-                    self.show_information_message("Upload to final table completed successfully.")
+                    self.show_information_message("Upload to final table and shapefile upload completed successfully.")
                 else:
-                    self.show_error_message("Some errors occurred during upload to final table.")
+                    self.show_error_message("Some errors occurred during upload to final table and shapefile upload.")
             else:
                 print(f"Layer '{layer_name}' not found.")
                 self.show_error_message(f"Layer '{layer_name}' not found.")
         else:
             print(f"Layer name not found in settings.")
             self.show_error_message("No layer name provided in settings.")
+
+    def upload_shapefiles_to_storage(self, layer_name, shapefile_paths):
+        bucket_name = "shapefiles"
+
+        for file_path in shapefile_paths:
+            file_name = os.path.basename(file_path)
+            file_key = f"{layer_name}/{file_name}"
+
+            with open(file_path, "rb") as file:
+                response = self.supabase.storage.from_(bucket_name).upload(file_key, file)
+
+            if response.status_code != 200:
+                print(f"Error uploading {file_name}: {response.text}")
+                return False
+
+        return True
 
     def convert_layer_features_to_geojson(self, layer):
         geojson_features = []
@@ -823,7 +850,8 @@ class Server_uploader:
             # Save the layer names to QSettings for persistence
             QSettings().setValue('Server_uploader/FeederLayerName', feeder_layer_name)
             QSettings().setValue('Server_uploader/SwitchLayerName', switch_layer_name)
-            QMessageBox.information(None, "Save Settings", f"Feeder layer '{feeder_layer_name}' and switch layer '{switch_layer_name}' saved")
+            QMessageBox.information(None, "Save Settings",
+                                    f"Feeder layer '{feeder_layer_name}' and switch layer '{switch_layer_name}' saved")
         else:
             QMessageBox.warning(None, "Save Settings", "Layer names cannot be empty")
 
