@@ -443,7 +443,8 @@ class Server_uploader:
         delete_url = f"{self.supabase_url}/rest/v1/{final_table_name}?id=neq.0"
         delete_response = requests.delete(delete_url, headers=headers)
         if delete_response.status_code != 204:
-            print(f"Error deleting existing records from final table: {delete_response.status_code} - {delete_response.text}")
+            print(
+                f"Error deleting existing records from final table: {delete_response.status_code} - {delete_response.text}")
             return False
 
         # Fetch data from the landing table
@@ -458,22 +459,24 @@ class Server_uploader:
         final_copy_url = f"{self.supabase_url}/rest/v1/{final_table_name}"
         copy_response = requests.post(final_copy_url, json=landing_data, headers=headers)
         if copy_response.status_code != 201:
-            print(f"Error copying data from landing table to final table: {copy_response.status_code} - {copy_response.text}")
+            print(
+                f"Error copying data from landing table to final table: {copy_response.status_code} - {copy_response.text}")
             return False
 
+        # Zitten nog fouten in, kan maar 1x iets uploaden met zelfde naam; staat ook hier niet juist, moet worden opgeroepen bij accept changes (anders wordt het 2x opgeladen)
         # Collect shapefile paths
-        layer_name = QSettings().value('Server_uploader/LayerName', '')
-        layers = QgsProject.instance().mapLayersByName(layer_name)
-        if layers:
-            layer = layers[0]
-            shapefile_paths = [layer.source().replace(".shp", ext) for ext in [".shp", ".shx", ".dbf", ".prj"]]
-
-            # Upload shapefiles to Supabase Storage
-            shapefile_upload_success = self.upload_shapefiles_to_storage(layer_name, shapefile_paths)
-
-            if not shapefile_upload_success:
-                print("Error uploading shapefiles to storage.")
-                return False
+        # layer_name = QSettings().value('Server_uploader/LayerName', '')
+        # layers = QgsProject.instance().mapLayersByName(layer_name)
+        # if layers:
+        #     layer = layers[0]
+        #     shapefile_paths = [layer.source().replace(".shp", ext) for ext in [".shp", ".shx", ".dbf", ".prj"]]
+        #
+        #     # Upload shapefiles to Supabase Storage
+        #     shapefile_upload_success = self.upload_shapefiles_to_storage(layer_name, shapefile_paths)
+        #
+        #     if not shapefile_upload_success:
+        #         print("Error uploading shapefiles to storage.")
+        #         return False
 
         print("Data copied from landing table to final table and shapefiles uploaded successfully.")
         return True
@@ -531,78 +534,62 @@ class Server_uploader:
         return upload_success
 
     def upload_to_landing_table_button_clicked(self):
+        feeder_layer_name = QSettings().value('Server_uploader/FeederLayerName', '')
+        switch_layer_name = QSettings().value('Server_uploader/SwitchLayerName', '')
         self.textbox2.setText("Upload is starting")
         QApplication.processEvents()
-        layer_name = QSettings().value('Server_uploader/LayerName', '')
-        if layer_name:
-            layers = QgsProject.instance().mapLayersByName(layer_name)
 
-            if layers:
-                layer = layers[0]
+        upload_results = []
+        all_changes_overview = ""
 
-                if layer_name == "Nieuwe voedingen-stadsplan":
-                    field_name = "feeder_id"
-                    landing_table_name = "landing_geojson_files"
-                    final_table_name = "geojson_files"
-                elif layer_name == "BL-schakelaars-zone":
-                    field_name = "switch_id"
-                    landing_table_name = "switches_landing_table"
-                    final_table_name = "switches_final_table"
-                else:
-                    self.show_error_message(f"Unknown layer '{layer_name}' selected.")
-                    return
+        if feeder_layer_name:
+            feeder_layer = QgsProject.instance().mapLayersByName(feeder_layer_name)
+            if feeder_layer:
+                layer = feeder_layer[0]
+                field_name = "feeder_id"
+                landing_table_name = "landing_geojson_files"
+                final_table_name = "geojson_files"
 
                 unique_errors = self.check_unique_ids(layer, field_name)
                 null_errors = self.check_non_null_ids(layer, field_name)
 
                 if unique_errors or null_errors:
-                    self.show_error_message("Errors detected in the layer. Upload cannot proceed.")
+                    self.show_error_message("Errors detected in the feeder layer. Upload cannot proceed.")
                     return
 
                 geojson_features = self.convert_layer_features_to_geojson(layer)
 
                 upload_success = self.perform_upload_to_landing_table(geojson_features, landing_table_name)
+                upload_results.append((landing_table_name, final_table_name, upload_success))
 
-                if upload_success:
-                    self.compare_landing_and_final_tables(landing_table_name, final_table_name)
-                else:
-                    self.show_error_message("Some errors occurred during upload.")
-            else:
-                print(f"Layer '{layer_name}' not found.")
-                self.show_error_message(f"Layer '{layer_name}' not found.")
-        else:
-            QMessageBox.warning(None, "Check", "No layer name provided")
+        if switch_layer_name:
+            switch_layer = QgsProject.instance().mapLayersByName(switch_layer_name)
+            if switch_layer:
+                layer = switch_layer[0]
+                field_name = "switch_id"
+                landing_table_name = "switches_landing_table"
+                final_table_name = "switches_final_table"
 
-    def upload_to_final_table_button_clicked(self):
-        layer_name = QSettings().value('Server_uploader/LayerName', '')
-        if layer_name:
-            layers = QgsProject.instance().mapLayersByName(layer_name)
+                unique_errors = self.check_unique_ids(layer, field_name)
+                null_errors = self.check_non_null_ids(layer, field_name)
 
-            if layers:
-                layer = layers[0]
-
-                if layer_name == "Nieuwe voedingen-stadsplan":
-                    landing_table_name = "landing_geojson_files"
-                    final_table_name = "geojson_files"
-                elif layer_name == "BL-schakelaars-zone":
-                    landing_table_name = "switches_landing_table"
-                    final_table_name = "switches_final_table"
-                else:
-                    self.show_error_message(f"Unknown layer '{layer_name}' selected.")
+                if unique_errors or null_errors:
+                    self.show_error_message("Errors detected in the switch layer. Upload cannot proceed.")
                     return
 
-                upload_success = self.perform_upload_to_final_table(landing_table_name, final_table_name)
+                geojson_features = self.convert_layer_features_to_geojson(layer)
 
-                if upload_success:
-                    self.show_information_message("Upload to final table and shapefile upload completed successfully.")
-                else:
-                    self.show_error_message("Some errors occurred during upload to final table and shapefile upload.")
-            else:
-                print(f"Layer '{layer_name}' not found.")
-                self.show_error_message(f"Layer '{layer_name}' not found.")
+                upload_success = self.perform_upload_to_landing_table(geojson_features, landing_table_name)
+                upload_results.append((landing_table_name, final_table_name, upload_success))
+
+        overall_success = all(result[2] for result in upload_results)
+
+        if overall_success:
+            for landing_table_name, final_table_name, _ in upload_results:
+                self.compare_landing_and_final_tables(landing_table_name, final_table_name)
+            self.create_accept_cancel_buttons()
         else:
-            print(f"Layer name not found in settings.")
-            self.show_error_message("No layer name provided in settings.")
+            self.show_error_message("Some errors occurred during upload.")
 
     def upload_shapefiles_to_storage(self, layer_name, shapefile_paths):
         bucket_name = "shapefiles"
@@ -700,8 +687,29 @@ class Server_uploader:
                 if not self.records_are_equal(landing_record, final_record):
                     changed_records.append((landing_record, final_record))
 
-        self.display_changes(added_ids, deleted_ids, changed_records, landing_records, final_records, field_name)
-        self.create_accept_cancel_buttons()
+        self.collect_changes(added_ids, deleted_ids, changed_records, landing_records, final_records, field_name)
+
+    def collect_changes(self, added_ids, deleted_ids, changed_records, landing_records, final_records, field_name):
+        added_records = [record for record in landing_records if record[field_name] in added_ids]
+        deleted_records = [record for record in final_records if record[field_name] in deleted_ids]
+
+        details_message = self.details_message if hasattr(self, 'details_message') else ""
+
+        details_message += f"<h2>Changes for table: {field_name}</h2>"
+        details_message += "<h3>Added Records:</h3>"
+        for record in added_records:
+            details_message += f"<pre>{self.format_record(record)}</pre>"
+
+        details_message += "<h3>Deleted Records:</h3>"
+        for record in deleted_records:
+            details_message += f"<pre>{self.format_record(record)}</pre>"
+
+        details_message += "<h3>Changed Records:</h3>"
+        for before, after in changed_records:
+            details_message += f"<h4>Before:</h4><pre>{self.format_record(before)}</pre>"
+            details_message += f"<h4>After:</h4><pre>{self.format_record(after)}</pre>"
+
+        self.details_message = details_message
 
     def display_changes(self, added_ids, deleted_ids, changed_records, landing_records, final_records, field_name):
         added_records = [record for record in landing_records if record[field_name] in added_ids]
@@ -729,7 +737,6 @@ class Server_uploader:
         self.details_message = details_message  # Store details message for later use
 
     def create_accept_cancel_buttons(self):
-        print("Creating accept, cancel, and show changes buttons...")
         self.remove_accept_cancel_buttons()
 
         self.layout = QVBoxLayout()
@@ -747,7 +754,6 @@ class Server_uploader:
         self.layout.addWidget(self.cancel_button)
 
         self.textbox2.setLayout(self.layout)
-        print("Buttons created and added to the layout.")
 
     def show_details_in_qgis(self):
         details_dialog = QDialog()
@@ -785,22 +791,25 @@ class Server_uploader:
         print("Existing buttons removed.")
 
     def accept_changes(self):
-        layer_name = QSettings().value('Server_uploader/LayerName', '')
-        if layer_name == "Nieuwe voedingen-stadsplan":
+        feeder_layer_name = QSettings().value('Server_uploader/FeederLayerName', '')
+        switch_layer_name = QSettings().value('Server_uploader/SwitchLayerName', '')
+        if feeder_layer_name:
             landing_table_name = "landing_geojson_files"
             final_table_name = "geojson_files"
-        elif layer_name == "BL-schakelaars-zone":
+            upload_success = self.perform_upload_to_final_table(landing_table_name, final_table_name)
+            if upload_success:
+                self.show_information_message("Upload to feeder final table completed successfully.")
+            else:
+                self.show_error_message("Some errors occurred during upload to switches final table.")
+        if switch_layer_name:
             landing_table_name = "switches_landing_table"
             final_table_name = "switches_final_table"
-        else:
-            self.show_error_message(f"Unknown layer '{layer_name}' selected.")
-            return
+            upload_success = self.perform_upload_to_final_table(landing_table_name, final_table_name)
+            if upload_success:
+                self.show_information_message("Upload to switch final table completed successfully.")
+            else:
+                self.show_error_message("Some errors occurred during upload to switches final table.")
 
-        upload_success = self.perform_upload_to_final_table(landing_table_name, final_table_name)
-        if upload_success:
-            self.show_information_message("Upload to final table completed successfully.")
-        else:
-            self.show_error_message("Some errors occurred during upload to final table.")
         self.remove_accept_cancel_buttons()
 
     def cancel_changes(self):
