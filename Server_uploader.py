@@ -534,13 +534,14 @@ class Server_uploader:
         return upload_success
 
     def upload_to_landing_table_button_clicked(self):
+        self.textbox2.setText("Upload in progress")
         feeder_layer_name = QSettings().value('Server_uploader/FeederLayerName', '')
         switch_layer_name = QSettings().value('Server_uploader/SwitchLayerName', '')
-        self.textbox2.setText("Upload is starting")
         QApplication.processEvents()
 
+
         upload_results = []
-        all_changes_overview = ""
+        changes_summary = []
 
         if feeder_layer_name:
             feeder_layer = QgsProject.instance().mapLayersByName(feeder_layer_name)
@@ -562,6 +563,10 @@ class Server_uploader:
                 upload_success = self.perform_upload_to_landing_table(geojson_features, landing_table_name)
                 upload_results.append((landing_table_name, final_table_name, upload_success))
 
+                if upload_success:
+                    summary = self.compare_landing_and_final_tables(landing_table_name, final_table_name)
+                    changes_summary.append(('Feeder Layer', summary))
+
         if switch_layer_name:
             switch_layer = QgsProject.instance().mapLayersByName(switch_layer_name)
             if switch_layer:
@@ -582,11 +587,23 @@ class Server_uploader:
                 upload_success = self.perform_upload_to_landing_table(geojson_features, landing_table_name)
                 upload_results.append((landing_table_name, final_table_name, upload_success))
 
+                if upload_success:
+                    summary = self.compare_landing_and_final_tables(landing_table_name, final_table_name)
+                    changes_summary.append(('Switch Layer', summary))
+
         overall_success = all(result[2] for result in upload_results)
 
         if overall_success:
+            high_level_overview = "\n"
+            for layer_name, summary in changes_summary:
+                added, deleted, changed = summary
+                high_level_overview += f"{layer_name}: Added: {added}, Deleted: {deleted}, Changed: {changed}\n"
+
+            self.textbox2.append(high_level_overview)
+
             for landing_table_name, final_table_name, _ in upload_results:
                 self.compare_landing_and_final_tables(landing_table_name, final_table_name)
+
             self.create_accept_cancel_buttons()
         else:
             self.show_error_message("Some errors occurred during upload.")
@@ -688,6 +705,9 @@ class Server_uploader:
                     changed_records.append((landing_record, final_record))
 
         self.collect_changes(added_ids, deleted_ids, changed_records, landing_records, final_records, field_name)
+
+        # Return the count of added, deleted, and changed records
+        return len(added_ids), len(deleted_ids), len(changed_records)
 
     def collect_changes(self, added_ids, deleted_ids, changed_records, landing_records, final_records, field_name):
         added_records = [record for record in landing_records if record[field_name] in added_ids]
@@ -811,6 +831,7 @@ class Server_uploader:
                 self.show_error_message("Some errors occurred during upload to switches final table.")
 
         self.remove_accept_cancel_buttons()
+        self.textbox2.clear()
 
     def cancel_changes(self):
         print("Cancel changes clicked.")
