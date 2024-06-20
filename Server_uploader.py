@@ -526,9 +526,9 @@ class Server_uploader:
         switch_layer_name = QSettings().value('Server_uploader/SwitchLayerName', '')
         QApplication.processEvents()
 
-
         upload_results = []
-        changes_summary = []
+        all_changes_summary = []
+        changes_summary = []  # Initialize changes_summary
 
         if feeder_layer_name:
             feeder_layer = QgsProject.instance().mapLayersByName(feeder_layer_name)
@@ -551,8 +551,10 @@ class Server_uploader:
                 upload_results.append((landing_table_name, final_table_name, upload_success))
 
                 if upload_success:
-                    summary = self.compare_landing_and_final_tables(landing_table_name, final_table_name)
-                    changes_summary.append(('Feeder Layer', summary))
+                    added, deleted, changed, details_message = self.compare_landing_and_final_tables(landing_table_name,
+                                                                                                     final_table_name)
+                    all_changes_summary.append(details_message)
+                    changes_summary.append(('Feeder Layer', (added, deleted, changed)))
 
         if switch_layer_name:
             switch_layer = QgsProject.instance().mapLayersByName(switch_layer_name)
@@ -575,8 +577,10 @@ class Server_uploader:
                 upload_results.append((landing_table_name, final_table_name, upload_success))
 
                 if upload_success:
-                    summary = self.compare_landing_and_final_tables(landing_table_name, final_table_name)
-                    changes_summary.append(('Switch Layer', summary))
+                    added, deleted, changed, details_message = self.compare_landing_and_final_tables(landing_table_name,
+                                                                                                     final_table_name)
+                    all_changes_summary.append(details_message)
+                    changes_summary.append(('Switch Layer', (added, deleted, changed)))
 
         overall_success = all(result[2] for result in upload_results)
 
@@ -586,10 +590,9 @@ class Server_uploader:
                 added, deleted, changed = summary
                 high_level_overview += f"{layer_name}: Added: {added}, Deleted: {deleted}, Changed: {changed}\n"
 
-            self.textbox2.append(high_level_overview)
+            self.textbox2.setText(high_level_overview)
 
-            for landing_table_name, final_table_name, _ in upload_results:
-                self.compare_landing_and_final_tables(landing_table_name, final_table_name)
+            self.display_changes(all_changes_summary)
 
             self.create_accept_cancel_buttons()
         else:
@@ -684,7 +687,6 @@ class Server_uploader:
         deleted_ids = final_ids - landing_ids
 
         changed_records = []
-
         for landing_record in landing_records:
             record_id = landing_record[field_name]
             if record_id in final_ids:
@@ -692,18 +694,16 @@ class Server_uploader:
                 if not self.records_are_equal(landing_record, final_record):
                     changed_records.append((landing_record, final_record))
 
-        self.collect_changes(added_ids, deleted_ids, changed_records, landing_records, final_records, field_name)
-
-        # Return the count of added, deleted, and changed records
-        return len(added_ids), len(deleted_ids), len(changed_records)
+        details_message = self.collect_changes(added_ids, deleted_ids, changed_records, landing_records, final_records,
+                                               field_name)
+        return len(added_ids), len(deleted_ids), len(changed_records), details_message
 
     def collect_changes(self, added_ids, deleted_ids, changed_records, landing_records, final_records, field_name):
+        details_message = f"<h2>Changes for table: {field_name}</h2>"
+
         added_records = [record for record in landing_records if record[field_name] in added_ids]
         deleted_records = [record for record in final_records if record[field_name] in deleted_ids]
 
-        details_message = self.details_message if hasattr(self, 'details_message') else ""
-
-        details_message += f"<h2>Changes for table: {field_name}</h2>"
         details_message += "<h3>Added Records:</h3>"
         for record in added_records:
             details_message += f"<pre>{self.format_record(record)}</pre>"
@@ -717,32 +717,15 @@ class Server_uploader:
             details_message += f"<h4>Before:</h4><pre>{self.format_record(before)}</pre>"
             details_message += f"<h4>After:</h4><pre>{self.format_record(after)}</pre>"
 
-        self.details_message = details_message
+        return details_message
 
-    def display_changes(self, added_ids, deleted_ids, changed_records, landing_records, final_records, field_name):
-        added_records = [record for record in landing_records if record[field_name] in added_ids]
-        deleted_records = [record for record in final_records if record[field_name] in deleted_ids]
+    def display_changes(self, all_changes_summary):
+        overall_message = ""
+        for summary in all_changes_summary:
+            overall_message += summary
 
-        result_message = f"Added records: {len(added_ids)}, " \
-                         f"Deleted records: {len(deleted_ids)}, " \
-                         f"Changed records: {len(changed_records)}"
-
-        self.textbox2.setText(result_message)
-
-        details_message = "<h2>Added Records:</h2>"
-        for record in added_records:
-            details_message += f"<pre>{self.format_record(record)}</pre>"
-
-        details_message += "<h2>Deleted Records:</h2>"
-        for record in deleted_records:
-            details_message += f"<pre>{self.format_record(record)}</pre>"
-
-        details_message += "<h2>Changed Records:</h2>"
-        for before, after in changed_records:
-            details_message += f"<h3>Before:</h3><pre>{self.format_record(before)}</pre>"
-            details_message += f"<h3>After:</h3><pre>{self.format_record(after)}</pre>"
-
-        self.details_message = details_message  # Store details message for later use
+        # Combine and store details message
+        self.details_message = overall_message
 
     def create_accept_cancel_buttons(self):
         self.remove_accept_cancel_buttons()
@@ -845,7 +828,7 @@ class Server_uploader:
         self.remove_accept_cancel_buttons()
 
     def records_are_equal(self, record1, record2):
-        excluded_fields = {'feeder_id', 'switch_id', 'id', 'created_at'}
+        excluded_fields = {'feeder_id', 'switch_id', 'id', 'created_at', 'deleted'}
         record1_normalized = {k: v for k, v in record1.items() if k not in excluded_fields}
         record2_normalized = {k: v for k, v in record2.items() if k not in excluded_fields}
         return record1_normalized == record2_normalized
