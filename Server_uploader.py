@@ -617,7 +617,8 @@ class Server_uploader:
 
     def convert_layer_features_to_geojson(self, layer):
         geojson_features = []
-        layer_name = QSettings().value('Server_uploader/LayerName', '')
+        feeder_layer_name = QSettings().value('Server_uploader/FeederLayerName', '')
+        switch_layer_name = QSettings().value('Server_uploader/SwitchLayerName', '')
 
         for feature in layer.getFeatures():
             properties = {}
@@ -629,12 +630,12 @@ class Server_uploader:
 
             wkt_geometry = feature.geometry().asWkt()
             try:
-                if layer_name == "Nieuwe voedingen-stadsplan":
+                if feeder_layer_name:
                     shapely_geometry = wkt_loads(wkt_geometry)
-                elif layer_name == "BL-schakelaars-zone":
+                elif switch_layer_name:
                     shapely_geometry = wkt_loads(wkt_geometry.replace('POINT Z', 'POINT'))
                 else:
-                    print(f"Unknown layer '{layer_name}' for geometry processing.")
+                    print(f"No layer for geometry processing.")
                     continue
             except Exception as e:
                 print(f"Error converting geometry to Shapely: {e}")
