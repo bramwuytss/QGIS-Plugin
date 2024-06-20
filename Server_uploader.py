@@ -440,14 +440,6 @@ class Server_uploader:
             "Content-Type": "application/json"
         }
 
-        # Delete existing records from the final table
-        delete_url = f"{self.supabase_url}/rest/v1/{final_table_name}?id=neq.0"
-        delete_response = requests.delete(delete_url, headers=headers)
-        if delete_response.status_code != 204:
-            print(
-                f"Error deleting existing records from final table: {delete_response.status_code} - {delete_response.text}")
-            return False
-
         # Fetch data from the landing table
         landing_response = requests.get(f"{self.supabase_url}/rest/v1/{landing_table_name}", headers=headers)
         if landing_response.status_code == 200:
@@ -456,17 +448,60 @@ class Server_uploader:
             print("Error fetching records from landing table.")
             return False
 
-        # Directly copy data from landing table to final table
-        final_copy_url = f"{self.supabase_url}/rest/v1/{final_table_name}"
-        copy_response = requests.post(final_copy_url, json=landing_data, headers=headers)
-        if copy_response.status_code != 201:
-            print(
-                f"Error copying data from landing table to final table: {copy_response.status_code} - {copy_response.text}")
+        # Fetch data from the final table
+        final_response = requests.get(f"{self.supabase_url}/rest/v1/{final_table_name}", headers=headers)
+        if final_response.status_code == 200:
+            final_data = final_response.json()
+        else:
+            print("Error fetching records from final table.")
             return False
 
+        # Determine field name based on table name
+        if 'switch' in landing_table_name:
+            field_name = 'switch_id'
+        else:
+            field_name = 'feeder_id'
 
-        print("Data copied from landing table to final table and shapefiles uploaded successfully.")
-        return True
+        final_data_dict = {record[field_name]: record for record in final_data}
+        upload_success = True
+
+        for landing_record in landing_data:
+            record_id = landing_record[field_name]
+            if record_id in final_data_dict:
+                final_record = final_data_dict[record_id]
+                if not self.records_are_equal(landing_record, final_record):
+                    # Identify changed fields
+                    changed_fields = {k: v for k, v in landing_record.items() if
+                                      k not in {'id'} and final_record.get(k) != v}
+                    if changed_fields:
+                        update_url = f"{self.supabase_url}/rest/v1/{final_table_name}?{field_name}=eq.{record_id}"
+                        response = requests.patch(update_url, json=changed_fields, headers=headers)
+                        if response.status_code != 204:
+                            print(
+                                f"Error updating record {record_id} in final table. Status code: {response.status_code}, Response: {response.text}")
+                            upload_success = False
+            else:
+                # Insert new record
+                insert_data = {k: v for k, v in landing_record.items() if k not in {'id'}}
+                insert_url = f"{self.supabase_url}/rest/v1/{final_table_name}"
+                response = requests.post(insert_url, json=insert_data, headers=headers)
+                if response.status_code != 201:
+                    print(
+                        f"Error inserting new record {record_id} in final table. Status code: {response.status_code}, Response: {response.text}")
+                    upload_success = False
+
+        # Mark records as deleted in the final table if they are not in the landing table
+        landing_ids = {record[field_name] for record in landing_data}
+        for final_record in final_data:
+            if final_record[field_name] not in landing_ids and not final_record.get('deleted', False):
+                update_url = f"{self.supabase_url}/rest/v1/{final_table_name}?{field_name}=eq.{final_record[field_name]}"
+                response = requests.patch(update_url, json={"deleted": True}, headers=headers)
+                if response.status_code != 204:
+                    print(
+                        f"Error marking record {final_record[field_name]} as deleted in final table. Status code: {response.status_code}, Response: {response.text}")
+                    upload_success = False
+
+        return upload_success
 
     def perform_upload(self, geojson_features, supabase_url, headers, table_name):
         # Determine the field name based on the table name
