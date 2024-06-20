@@ -39,6 +39,7 @@ import json
 import tempfile
 import shutil
 import sys
+from datetime import datetime
 # from typing import Dict, List, Union
 from shapely.wkt import loads as wkt_loads
 from PyQt5.QtWidgets import QDialog, QVBoxLayout, QTextEdit, QPushButton
@@ -463,20 +464,6 @@ class Server_uploader:
                 f"Error copying data from landing table to final table: {copy_response.status_code} - {copy_response.text}")
             return False
 
-        # Zitten nog fouten in, kan maar 1x iets uploaden met zelfde naam; staat ook hier niet juist, moet worden opgeroepen bij accept changes (anders wordt het 2x opgeladen)
-        # Collect shapefile paths
-        # layer_name = QSettings().value('Server_uploader/LayerName', '')
-        # layers = QgsProject.instance().mapLayersByName(layer_name)
-        # if layers:
-        #     layer = layers[0]
-        #     shapefile_paths = [layer.source().replace(".shp", ext) for ext in [".shp", ".shx", ".dbf", ".prj"]]
-        #
-        #     # Upload shapefiles to Supabase Storage
-        #     shapefile_upload_success = self.upload_shapefiles_to_storage(layer_name, shapefile_paths)
-        #
-        #     if not shapefile_upload_success:
-        #         print("Error uploading shapefiles to storage.")
-        #         return False
 
         print("Data copied from landing table to final table and shapefiles uploaded successfully.")
         return True
@@ -610,10 +597,11 @@ class Server_uploader:
 
     def upload_shapefiles_to_storage(self, layer_name, shapefile_paths):
         bucket_name = "shapefiles"
+        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
 
         for file_path in shapefile_paths:
             file_name = os.path.basename(file_path)
-            file_key = f"{layer_name}/{file_name}"
+            file_key = f"{layer_name}_{timestamp}/{file_name}_{timestamp}"
 
             with open(file_path, "rb") as file:
                 response = self.supabase.storage.from_(bucket_name).upload(file_key, file)
@@ -816,6 +804,15 @@ class Server_uploader:
         if feeder_layer_name:
             landing_table_name = "landing_geojson_files"
             final_table_name = "geojson_files"
+            layers = QgsProject.instance().mapLayersByName(feeder_layer_name)
+            if layers:
+                layer = layers[0]
+                shapefile_paths = [layer.source().replace(".shp", ext) for ext in [".shp", ".shx", ".dbf", ".prj"]]
+                 # Upload shapefiles to Supabase Storage
+                shapefile_upload_success = self.upload_shapefiles_to_storage(feeder_layer_name, shapefile_paths)
+                if not shapefile_upload_success:
+                     print("Error uploading shapefiles to storage.")
+                     return False
             upload_success = self.perform_upload_to_final_table(landing_table_name, final_table_name)
             if upload_success:
                 self.show_information_message("Upload to feeder final table completed successfully.")
@@ -824,6 +821,15 @@ class Server_uploader:
         if switch_layer_name:
             landing_table_name = "switches_landing_table"
             final_table_name = "switches_final_table"
+            layers = QgsProject.instance().mapLayersByName(switch_layer_name)
+            if layers:
+                layer = layers[0]
+                shapefile_paths = [layer.source().replace(".shp", ext) for ext in [".shp", ".shx", ".dbf", ".prj"]]
+                # Upload shapefiles to Supabase Storage
+                shapefile_upload_success = self.upload_shapefiles_to_storage(switch_layer_name, shapefile_paths)
+                if not shapefile_upload_success:
+                    print("Error uploading shapefiles to storage.")
+                    return False
             upload_success = self.perform_upload_to_final_table(landing_table_name, final_table_name)
             if upload_success:
                 self.show_information_message("Upload to switch final table completed successfully.")
