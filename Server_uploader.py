@@ -240,11 +240,25 @@ class Server_uploader:
     # def run_quality_checks(self) -> List[DataQualityCheckResult]:
     #     raise NotImplementedError("still to do")
 
-    def check_unique_ids(self, layer, field_name):
-        """Check that all specified field values are unique."""
+    def check_unique_ids(self, layer, field_name, final_table):
+        """Check that all specified field values are unique, and consider records in the final table with 'deleted' set to True."""
         errors = []
         idx = layer.fields().indexFromName(field_name)
         feeder_id_counts = {}
+
+        headers = {"apikey": self.service_role_api_key}
+        url = f"{self.supabase_url}/rest/v1/{final_table}?deleted=eq.True"
+        response = requests.get(url, headers=headers)
+
+        if response.status_code == 200:
+            final_data_deleted_true = response.json()
+        else:
+            print(
+                f"Error fetching deleted records from final table. Status code: {response.status_code}, Response: {response.text}")
+            return errors  # Early return due to error in fetching data
+
+        # Extract the IDs of records with 'deleted' set to True
+        deleted_ids = {record[field_name] for record in final_data_deleted_true}
 
         for feature in layer.getFeatures():
             value = feature.attributes()[idx]
@@ -255,6 +269,10 @@ class Server_uploader:
                     feeder_id_counts[value].append(feature)
                 else:
                     feeder_id_counts[value] = [feature]
+
+                # Extra check: if value exists in final table with 'deleted' set to True
+                if value in deleted_ids:
+                    errors.append(feature)
 
         for features in feeder_id_counts.values():
             if len(features) > 1:
@@ -321,9 +339,10 @@ class Server_uploader:
             feeder_layer = QgsProject.instance().mapLayersByName(feeder_layer_name)
             if feeder_layer:
                 feeder_layer = feeder_layer[0]
-                feeder_field_name = "feeder_id"  # Field name for the feeder layer
+                feeder_field_name = "feeder_id"
+                feeder_final_table = "geojson_files"# Field name for the feeder layer
 
-                feeder_unique_errors = self.check_unique_ids(feeder_layer, feeder_field_name)
+                feeder_unique_errors = self.check_unique_ids(feeder_layer, feeder_field_name, feeder_final_table)
                 feeder_null_errors = self.check_non_null_ids(feeder_layer, feeder_field_name)
 
                 self.dlg.TextBox1.clear()
@@ -355,8 +374,9 @@ class Server_uploader:
             if switch_layer:
                 switch_layer = switch_layer[0]
                 switch_field_name = "switch_id"  # Field name for the switch layer
+                switch_final_table = "switches_final_table"
 
-                switch_unique_errors = self.check_unique_ids(switch_layer, switch_field_name)
+                switch_unique_errors = self.check_unique_ids(switch_layer, switch_field_name, switch_final_table)
                 switch_null_errors = self.check_non_null_ids(switch_layer, switch_field_name)
 
                 if switch_unique_errors:
@@ -550,7 +570,7 @@ class Server_uploader:
                 landing_table_name = "landing_geojson_files"
                 final_table_name = "geojson_files"
 
-                unique_errors = self.check_unique_ids(layer, field_name)
+                unique_errors = self.check_unique_ids(layer, field_name, final_table_name)
                 null_errors = self.check_non_null_ids(layer, field_name)
 
                 if unique_errors or null_errors:
@@ -576,7 +596,7 @@ class Server_uploader:
                 landing_table_name = "switches_landing_table"
                 final_table_name = "switches_final_table"
 
-                unique_errors = self.check_unique_ids(layer, field_name)
+                unique_errors = self.check_unique_ids(layer, field_name, final_table_name)
                 null_errors = self.check_non_null_ids(layer, field_name)
 
                 if unique_errors or null_errors:
