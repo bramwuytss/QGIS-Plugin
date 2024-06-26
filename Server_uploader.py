@@ -693,6 +693,9 @@ class Server_uploader:
         else:
             field_name = 'feeder_id'
 
+        # Filter out records marked as deleted
+        final_records = [record for record in final_records if not record.get('deleted', False)]
+
         landing_ids = {record[field_name] for record in landing_records}
         final_ids = {record[field_name] for record in final_records}
 
