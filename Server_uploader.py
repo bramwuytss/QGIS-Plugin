@@ -2,7 +2,7 @@ from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication
 from qgis.PyQt.QtGui import QIcon, QPixmap
 from qgis.PyQt.QtWidgets import QAction, QPushButton, QTextEdit, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 from qgis.core import QgsVectorLayer, QgsFeature, QgsField, QgsGeometry, QgsProject, QgsCoordinateReferenceSystem, \
-    QgsCoordinateTransformContext, QgsWkbTypes, QgsVectorFileWriter, QgsSymbol, QgsSingleSymbolRenderer
+    QgsCoordinateTransformContext, QgsWkbTypes, QgsVectorFileWriter, QgsSymbol, QgsSingleSymbolRenderer, QgsFeatureRequest, QgsPointXY
 from PyQt5.QtGui import QColor
 from qgis.PyQt.QtCore import QVariant
 from PyQt5.QtCore import QVariant
@@ -22,6 +22,7 @@ from shapely.wkt import loads as wkt_loads
 from PyQt5.QtWidgets import QDialog, QVBoxLayout, QTextEdit, QPushButton
 from supabase import create_client, Client
 # from dataclasses import dataclass
+import math
 
 
 # Initialize Qt resources from file resources.py
@@ -81,7 +82,7 @@ class Server_uploader:
         self.first_start = None
         self.supabase_url = "https://vckjtooglwrxxmwcyyeo.supabase.co"
         self.service_role_api_key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZja2p0b29nbHdyeHhtd2N5eWVvIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTcxNTc2Nzg3MiwiZXhwIjoyMDMxMzQzODcyfQ.sa090Kgdfn357eTGO1kLIwoJj4zQ1cEuwCdjVP1CzN8"
-        self.supabase = create_client(self.supabase_url, self.service_role_api_key)
+        self.supabase: Client = create_client(self.supabase_url, self.service_role_api_key)
 
     # noinspection PyMethodMayBeStatic
     def tr(self, message):
@@ -210,6 +211,9 @@ class Server_uploader:
             upload_button = self.dlg.findChild(QPushButton, "Upload_to_server")  # Find the button by object name
             upload_button.clicked.connect(self.upload_to_landing_table_button_clicked)
 
+            shapefiles_button = self.dlg.findChild(QPushButton, "GetShapefiles")
+            shapefiles_button.clicked.connect(self.retrieve_most_recent_shapefiles)
+
             self.textbox1 = self.dlg.findChild(QTextEdit, "TextBox1")
             self.textbox2 = self.dlg.findChild(QTextEdit, "TextBox2")
 
@@ -331,6 +335,60 @@ class Server_uploader:
         if layer_tree_layer is not None:
             layer_tree_layer.setItemVisibilityChecked(True)
 
+    def check_edging_feeders(self, feeder_layer, switch_layer):
+        """Check for edging feeders and ensure there's a switch within 20 meters of overlapping start or end points."""
+        errors = []
+        feeder_coords = {}
+
+        # Collect all features by their coordinates and layer
+        for feature in feeder_layer.getFeatures():
+            geom = feature.geometry()
+            if geom.isEmpty():
+                continue
+            coords = geom.asMultiPolyline()
+            if len(coords) > 0:
+                start_point = QgsPointXY(coords[0][0])
+                end_point = QgsPointXY(coords[-1][-1])
+                layer_value = feature['LAYER']
+
+                # Only consider start and end points
+                start_end_points = [(start_point, 'start'), (end_point, 'end')]
+
+                for point, point_type in start_end_points:
+                    if point not in feeder_coords:
+                        feeder_coords[point] = []
+                    feeder_coords[point].append((layer_value, feature, point_type))
+
+        # Find start or end points where different layers overlap
+        overlapping_points = {}
+        for point, layers in feeder_coords.items():
+            if len(layers) > 1:
+                overlapping_points[point] = layers
+
+        # Check for switches within 20 meters of overlapping start or end points
+        for point, layers in overlapping_points.items():
+            for layer_value, feature, point_type in layers:
+                # Buffer the point to create a search area
+                buffer_geom = QgsGeometry.fromPointXY(point).buffer(50, 0.01)
+
+                # Create a filter request using the buffered area
+                request = QgsFeatureRequest().setFilterRect(buffer_geom.boundingBox())
+
+                # Search for switches within the buffered area
+                nearest_switch_found = False
+                for switch_feature in switch_layer.getFeatures(request):
+                    switch_geom = switch_feature.geometry()
+                    if buffer_geom.intersects(switch_geom):
+                        nearest_switch_found = True
+                        break
+
+                # If no switch found, add the feeder feature to errors
+                if not nearest_switch_found:
+                    errors.append(feature)
+                    break  # No need to check other layers at this point
+
+        return errors
+
     def check_button_clicked(self):
         feeder_layer_name = QSettings().value('Server_uploader/FeederLayerName', '')
         switch_layer_name = QSettings().value('Server_uploader/SwitchLayerName', '')
@@ -340,7 +398,7 @@ class Server_uploader:
             if feeder_layer:
                 feeder_layer = feeder_layer[0]
                 feeder_field_name = "feeder_id"
-                feeder_final_table = "geojson_files"# Field name for the feeder layer
+                feeder_final_table = "geojson_files"  # Field name for the feeder layer
 
                 feeder_unique_errors = self.check_unique_ids(feeder_layer, feeder_field_name, feeder_final_table)
                 feeder_null_errors = self.check_non_null_ids(feeder_layer, feeder_field_name)
@@ -402,7 +460,15 @@ class Server_uploader:
         else:
             QMessageBox.warning(None, "Check", "No switch layer name provided")
 
-        if not feeder_unique_errors and not feeder_null_errors and not switch_unique_errors and not switch_null_errors:
+        if feeder_layer and switch_layer:
+            edging_errors = self.check_edging_feeders(feeder_layer, switch_layer)
+            if edging_errors:
+                self.create_error_layer("Edging feeders without nearby switch", feeder_layer, edging_errors)
+                self.dlg.TextBox1.append("❌ Edging Feeder Check: Failed")
+            else:
+                self.dlg.TextBox1.append("✔️ Edging Feeder Check: Passed")
+
+        if not feeder_unique_errors and not feeder_null_errors and not switch_unique_errors and not switch_null_errors and not edging_errors:
             self.show_information_message("No errors detected in layers.")
             return False
         else:
@@ -924,3 +990,83 @@ class Server_uploader:
     def show_information_message(self, message):
         """Displays an information message to the user"""
         QMessageBox.information(None, "Information", message)
+
+    def retrieve_most_recent_shapefiles(self):
+        bucket_name = "shapefiles"
+
+        print(f"Retrieving most recent shapefiles for bucket: {bucket_name}")
+
+        feeder_layer_name = "Nieuwe voedingen-stadsplan"
+        switch_layer_name = "BL-schakelaars-zone"
+
+        feeder_shapefiles_folder = self.get_most_recent_folder_from_bucket(bucket_name, feeder_layer_name)
+        switch_shapefiles_folder = self.get_most_recent_folder_from_bucket(bucket_name, switch_layer_name)
+
+        download_path = "C:/Users/BramWuyts/Downloads"
+
+        if feeder_shapefiles_folder:
+            self.download_folder(bucket_name, feeder_shapefiles_folder, os.path.join(download_path, "feeder"))
+
+        if switch_shapefiles_folder:
+            self.download_folder(bucket_name, switch_shapefiles_folder, os.path.join(download_path, "switch"))
+
+    def get_most_recent_folder_from_bucket(self, bucket_name, layer_name):
+        try:
+            response = self.supabase.storage.from_(bucket_name).list()
+        except Exception as e:
+            print(f"Error listing objects in bucket {bucket_name}: {e}")
+            return None
+
+        if not isinstance(response, list):
+            print(f"Error listing objects in bucket {bucket_name}: Unexpected response format")
+            return None
+
+        print(f"Objects in bucket: {response}")
+
+        # Filter folders based on layer_name
+        folders = [obj['name'] for obj in response if obj['name'].startswith(layer_name)]
+
+        if not folders:
+            print(f"No folders found for layer: {layer_name}")
+            return None
+
+        # Find the most recent folder based on the timestamp in the folder name
+        most_recent_folder = sorted(folders, key=lambda x: datetime.strptime(x.split('_')[-1], "%Y%m%d%H%M%S"), reverse=True)[0]
+
+        return most_recent_folder
+
+    def download_folder(self, bucket_name, folder_name, local_directory):
+        print(f"Attempting to download folder: {folder_name} from bucket: {bucket_name} to local directory: {local_directory}")
+
+        try:
+            # Ensure folder_name is a string and add '/' at the end for correct prefix matching
+            files = self.supabase.storage.from_(bucket_name).list(folder_name + '/')
+        except Exception as e:
+            print(f"Error listing objects in folder {folder_name}: {e}")
+            return
+
+        if not isinstance(files, list):
+            print(f"Error listing objects in folder {folder_name}: Unexpected response format")
+            return
+
+        print(f"Files in folder: {files}")
+
+        os.makedirs(local_directory, exist_ok=True)
+
+        for file in files:
+            file_name = file['name']
+            destination_path = os.path.join(local_directory, os.path.basename(file_name))
+            print(f"Downloading file {file_name} to {destination_path}")
+
+            try:
+                res = self.supabase.storage.from_(bucket_name).download(file_name)
+                if 'data' not in res:
+                    print(f"Error downloading {file_name}: {res.get('error', 'Unknown error')}")
+                    continue
+            except Exception as e:
+                print(f"Error downloading {file_name}: {e}")
+                continue
+
+            with open(destination_path, 'wb') as f:
+                f.write(res['data'])
+                print(f"Downloaded {file_name} successfully to {destination_path}.")
