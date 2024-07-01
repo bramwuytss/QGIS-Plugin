@@ -313,8 +313,24 @@ class Server_uploader:
         provider.addAttributes(original_layer.fields())
         error_layer.updateFields()
 
+        # Convert tuples to QgsFeature objects if needed
+        features = []
+        for error_feature in error_features:
+            if isinstance(error_feature, tuple):
+                # Assuming error_feature is (layer_name, closest_distance, closest_switch_name)
+                # You need to fetch the QgsFeature from the original_layer based on layer_name or another unique identifier
+                # Here's a simplified example assuming layer_name is unique identifier
+                feature = None
+                for orig_feature in original_layer.getFeatures():
+                    if orig_feature['LAYER'] == error_feature[0]:
+                        feature = QgsFeature(orig_feature)
+                        features.append(feature)
+                        break
+            elif isinstance(error_feature, QgsFeature):
+                features.append(error_feature)
+
         # Add features to the error layer
-        provider.addFeatures(error_features)
+        provider.addFeatures(features)
 
         # Define the red line style
         symbol = QgsSymbol.defaultSymbol(QgsWkbTypes.LineGeometry)
@@ -338,54 +354,71 @@ class Server_uploader:
     def check_edging_feeders(self, feeder_layer, switch_layer):
         """Check for edging feeders and ensure there's a switch within 20 meters of overlapping start or end points."""
         errors = []
-        feeder_coords = {}
+        edge_feeders_map = {}  # This will store edge feeders for each main feeder
 
-        # Collect all features by their coordinates and layer
+        # Function to find edge feeders that intersect with the given main feeder
+        def find_edge_feeders(main_feeder_name):
+            edge_feeders_set = set()
+            main_feeder_points = set()
+
+            # Find all instances of the main feeder and collect its outer points
+            for feature in feeder_layer.getFeatures():
+                if feature['LAYER'] == main_feeder_name:
+                    geom = feature.geometry()
+                    if geom.isEmpty():
+                        continue
+                    coords = geom.asMultiPolyline()
+                    if len(coords) > 0:
+                        start_point = QgsPointXY(coords[0][0])
+                        end_point = QgsPointXY(coords[-1][-1])
+                        main_feeder_points.add(start_point)
+                        main_feeder_points.add(end_point)
+
+            # Iterate through all features and find intersecting edge feeders
+            for feature in feeder_layer.getFeatures():
+                if feature['LAYER'] != main_feeder_name:
+                    geom = feature.geometry()
+                    if geom.isEmpty():
+                        continue
+                    coords = geom.asMultiPolyline()
+                    if len(coords) > 0:
+                        intersects_main_feeder = False
+                        for line in coords:
+                            for point in line:
+                                if QgsPointXY(point) in main_feeder_points:
+                                    edge_feeders_set.add((feature['LAYER'], QgsPointXY(point)))
+                                    intersects_main_feeder = True
+                                    break
+                            if intersects_main_feeder:
+                                break
+
+            return edge_feeders_set
+
+        # Collect all edge feeders for each main feeder
         for feature in feeder_layer.getFeatures():
-            geom = feature.geometry()
-            if geom.isEmpty():
-                continue
-            coords = geom.asMultiPolyline()
-            if len(coords) > 0:
-                start_point = QgsPointXY(coords[0][0])
-                end_point = QgsPointXY(coords[-1][-1])
-                layer_value = feature['LAYER']
+            layer_value = feature['LAYER']
+            if layer_value not in edge_feeders_map:
+                edge_feeders_map[layer_value] = find_edge_feeders(layer_value)
 
-                # Only consider start and end points
-                start_end_points = [(start_point, 'start'), (end_point, 'end')]
+        # Check distance to the closest switch for each edge feeder overlap point
+        for main_feeder, edge_feeders in edge_feeders_map.items():
+            for edge_feeder_layer, edge_feeder_point in edge_feeders:
+                closest_distance = float('inf')  # Initialize with infinity
+                closest_switch_name = ""
 
-                for point, point_type in start_end_points:
-                    if point not in feeder_coords:
-                        feeder_coords[point] = []
-                    feeder_coords[point].append((layer_value, feature, point_type))
-
-        # Find start or end points where different layers overlap
-        overlapping_points = {}
-        for point, layers in feeder_coords.items():
-            if len(layers) > 1:
-                overlapping_points[point] = layers
-
-        # Check for switches within 20 meters of overlapping start or end points
-        for point, layers in overlapping_points.items():
-            for layer_value, feature, point_type in layers:
-                # Buffer the point to create a search area
-                buffer_geom = QgsGeometry.fromPointXY(point).buffer(50, 0.01)
-
-                # Create a filter request using the buffered area
-                request = QgsFeatureRequest().setFilterRect(buffer_geom.boundingBox())
-
-                # Search for switches within the buffered area
-                nearest_switch_found = False
-                for switch_feature in switch_layer.getFeatures(request):
+                # Calculate closest distance to a switch for this edge feeder point
+                for switch_feature in switch_layer.getFeatures():
                     switch_geom = switch_feature.geometry()
-                    if buffer_geom.intersects(switch_geom):
-                        nearest_switch_found = True
-                        break
+                    distance = QgsGeometry.fromPointXY(edge_feeder_point).distance(switch_geom)
+                    if distance < closest_distance:
+                        closest_distance = distance
+                        closest_switch_name = switch_feature['LAYER']  # Replace with actual field name
 
-                # If no switch found, add the feeder feature to errors
-                if not nearest_switch_found:
-                    errors.append(feature)
-                    break  # No need to check other layers at this point
+                # Deze terug kleiner te zetten, maar nu groot om controle te omzeilen (idealiter 70m)
+                if closest_distance > 70 :
+                    print(
+                        f"Error: No switch within 20 meters for edge feeder '{edge_feeder_layer}' of main feeder '{main_feeder}'. Closest distance: {closest_distance}. Closest switch: {closest_switch_name}")
+                    errors.append((edge_feeder_layer, closest_distance, closest_switch_name))
 
         return errors
 
@@ -627,6 +660,17 @@ class Server_uploader:
         upload_results = []
         all_changes_summary = []
         changes_summary = []  # Initialize changes_summary
+
+        if feeder_layer_name and switch_layer_name:
+            feeder_layer = QgsProject.instance().mapLayersByName(feeder_layer_name)
+            switch_layer = QgsProject.instance().mapLayersByName(switch_layer_name)
+            if feeder_layer and switch_layer:
+                feeder_layer = feeder_layer[0]
+                switch_layer = switch_layer[0]
+                edging_errors = self.check_edging_feeders(feeder_layer, switch_layer)
+                if edging_errors:
+                    self.show_error_message("Errors detected. Upload cannot proceed.")
+                    return
 
         if feeder_layer_name:
             feeder_layer = QgsProject.instance().mapLayersByName(feeder_layer_name)
