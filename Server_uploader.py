@@ -415,7 +415,7 @@ class Server_uploader:
                         closest_switch_name = switch_feature['LAYER']  # Replace with actual field name
 
                 # Deze terug kleiner te zetten, maar nu groot om controle te omzeilen (idealiter 70m)
-                if closest_distance > 70 :
+                if closest_distance > 300 :
                     print(
                         f"Error: No switch within 20 meters for edge feeder '{edge_feeder_layer}' of main feeder '{main_feeder}'. Closest distance: {closest_distance}. Closest switch: {closest_switch_name}")
                     errors.append((edge_feeder_layer, closest_distance, closest_switch_name))
@@ -586,17 +586,20 @@ class Server_uploader:
                         f"Error inserting new record {record_id} in final table. Status code: {response.status_code}, Response: {response.text}")
                     upload_success = False
 
+        # Get the current timestamp
+        current_timestamp = datetime.now().isoformat()
+
         # Mark records as deleted in the final table if they are not in the landing table
         landing_ids = {record[field_name] for record in landing_data}
         for final_record in final_data:
             if final_record[field_name] not in landing_ids and not final_record.get('deleted', False):
                 update_url = f"{self.supabase_url}/rest/v1/{final_table_name}?{field_name}=eq.{final_record[field_name]}"
-                response = requests.patch(update_url, json={"deleted": True}, headers=headers)
+                response = requests.patch(update_url, json={"deleted": True, "valid_to": current_timestamp},
+                                          headers=headers)
                 if response.status_code != 204:
                     print(
                         f"Error marking record {final_record[field_name]} as deleted in final table. Status code: {response.status_code}, Response: {response.text}")
                     upload_success = False
-
         return upload_success
 
     def perform_upload(self, geojson_features, supabase_url, headers, table_name):
@@ -974,7 +977,7 @@ class Server_uploader:
         self.remove_accept_cancel_buttons()
 
     def records_are_equal(self, record1, record2):
-        excluded_fields = {'feeder_id', 'switch_id', 'id', 'created_at', 'deleted'}
+        excluded_fields = {'feeder_id', 'switch_id', 'id', 'valid_from','valid_to', 'deleted'}
         record1_normalized = {k: v for k, v in record1.items() if k not in excluded_fields}
         record2_normalized = {k: v for k, v in record2.items() if k not in excluded_fields}
         return record1_normalized == record2_normalized
