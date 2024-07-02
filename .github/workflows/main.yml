@@ -19,6 +19,8 @@ jobs:
        with:
          # See montudor/action-zip README.md for more info
          args: zip -qq -r server_uploader.zip server_uploader
-     - uses: actions/upload-artifact@v2
+     - uses: actions/upload-artifact@v4
        with:
-          name: server_uploader.zip
+          name: QGIS plugin
+          path: server_uploader.zip
+          overwrite: true
