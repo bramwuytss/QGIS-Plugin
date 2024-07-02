@@ -38,7 +38,7 @@ If you need to modify the plugin's functionality, navigate to the extracted fold
 To view the changes made to the plugin, we need to reload the plugin. To do this, another plugin called "Plugin reloader" can be used.  
 
 ### Sample data
-Download the [sample data QGIS.zip](sample%20data%20QGIS.zip) folder.  
+Download the [sample data QGIS.zip](Sample%20Data%20QGIS.zip) folder.  
 Extract the downloaded ZIP-file to a location on your computer.    
 Locate and open the QGIS project file named `Sample Data` from the extracted folder.   
 QGIS will launch and load 2 layers from the project file.  
