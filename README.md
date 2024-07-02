@@ -30,7 +30,7 @@ Download it [here](https://github.com/bramwuytss/QGIS-Plugin/raw/main/server_upl
 
 
 Locate the downloaded zip folder and click "Install Plugin".
-The plugin will now be installed in QGIS. Upon installation, an extracted folder will be created at the installation path of QGIS. For example for windows: C:\Users\UserName\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins  
+The plugin will now be installed in QGIS. Upon installation, an extracted folder will be created at the installation path of QGIS. For example for windows: `C:\Users\UserName\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins`  
 
 
 We can now use the plugin, using the sample data provided below.  
