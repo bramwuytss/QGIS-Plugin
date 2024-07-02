@@ -6,9 +6,7 @@ Upon passing checks, an upload can be performed, first to the landing table. Thi
 When making an upload to the final table, a copy of the shapefiles will also be uploaded to a bucket on the server. The goal is that the plugin also contains a button "Get shapfiles", which will download the shapefiles from the server, so the user can always work with the most recent version of the shapefiles. However, this functionality is still under development.  
 ## How to use locally
 ### Plugin-code
-Download the `server_uploader.zip` folder.  
-Store it at the following path (as a zip-file): `C:\Users\UserName\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins` (This should be the download path of the QGIS installation).  
-Next, open QGIS and navigate to `Plugins -> Manage and install Plugins -> Install from ZIP`. Locate the downloaded zip folder and click "Install Plugin".  
+Download the [QGIS plugin](server_uploader.zip) as a zip file. Don't extract the zipfile! Store it under your qgis profile (on windows, this is typically  `C:\Users\UserName\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins`).   Next, open QGIS and navigate to `Plugins -> Manage and install Plugins -> Install from ZIP`. Locate the downloaded zip folder and click "Install Plugin".  
 The plugin will now be installed in QGIS. Upon installation, an extracted folder will be created at the path specified earlier.   
 We can now use the plugin, using the sample data provided below.  
 If you need to modify the plugin's functionality, navigate to the extracted folder and edit either the "Server_uploader.py" or "Server_uploader_dialog.py" files.   
