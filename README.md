@@ -2,7 +2,7 @@
 This plugin allows uploading QGIS shapefiles/layers to a server for integration with the "schakelboekje" application.  
 Before an upload to the server can be performed, certain checks should and will be performed. There are 3 checks: 1 to check whether the ID is unique (for both layers), 1 to check whether the ID is not null (for both layers) and 1 to check whether there is a switch between every feeder section. When the check buttons is pressed, all 3 checks will be performed at once.  
 If the checks fail, error layers will be created, which will contain the errors that should be fixed before proceeding.  
-Upon passing checks, an upload can be performed, first to the landing table. This will result in an overview of the changes that have been made. Afterwards, users will have the choice to cancel or to accept the changes. When the user accepts the changes, an upload to the final table will happen, which is connected with the "schakelboekje" application.  
+Upon passing checks, an upload can be performed, first to the landing table. This will result in an overview of the changes that have been made. Afterwards, users will have the choice to cancel or to accept the changes. When the user accepts the changes, an upload will hapen to the final table, which is connected with the "schakelboekje" application.  
 When making an upload to the final table, a copy of the shapefiles will also be uploaded to a bucket on the server. The goal is that the plugin also contains a button "Get shapfiles", which will download the shapefiles from the server, so the user can always work with the most recent version of the shapefiles. However, this functionality is still under development.  
 ## How to use locally
 ### Plugin-code
