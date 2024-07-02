@@ -1038,9 +1038,9 @@ class Server_uploader:
         """Displays an information message to the user"""
         QMessageBox.information(None, "Information", message)
 
+    # Code still needs to be changed to actually download the files from the supabase bucket and load into QGIS
     def retrieve_most_recent_shapefiles(self):
         bucket_name = "shapefiles"
-
         print(f"Retrieving most recent shapefiles for bucket: {bucket_name}")
 
         feeder_layer_name = "Nieuwe voedingen-stadsplan"
@@ -1049,14 +1049,15 @@ class Server_uploader:
         feeder_shapefiles_folder = self.get_most_recent_folder_from_bucket(bucket_name, feeder_layer_name)
         switch_shapefiles_folder = self.get_most_recent_folder_from_bucket(bucket_name, switch_layer_name)
 
-        download_path = "C:/Users/BramWuyts/Downloads"
-
         if feeder_shapefiles_folder:
-            self.download_folder(bucket_name, feeder_shapefiles_folder, os.path.join(download_path, "feeder"))
+            feeder_urls = self.generate_file_urls(bucket_name, feeder_shapefiles_folder)
+            print(f"Feeder shapefile URLs: {feeder_urls}")
 
         if switch_shapefiles_folder:
-            self.download_folder(bucket_name, switch_shapefiles_folder, os.path.join(download_path, "switch"))
+            switch_urls = self.generate_file_urls(bucket_name, switch_shapefiles_folder)
+            print(f"Switch shapefile URLs: {switch_urls}")
 
+    # Code still needs to be changed to actually download the files from the supabase bucket and load into QGIS
     def get_most_recent_folder_from_bucket(self, bucket_name, layer_name):
         try:
             response = self.supabase.storage.from_(bucket_name).list()
@@ -1082,38 +1083,21 @@ class Server_uploader:
 
         return most_recent_folder
 
-    def download_folder(self, bucket_name, folder_name, local_directory):
-        print(f"Attempting to download folder: {folder_name} from bucket: {bucket_name} to local directory: {local_directory}")
-
+    # Code still needs to be changed to actually download the files from the supabase bucket and load into QGIS
+    def generate_file_urls(self, bucket_name, folder_name):
         try:
-            # Ensure folder_name is a string and add '/' at the end for correct prefix matching
             files = self.supabase.storage.from_(bucket_name).list(folder_name + '/')
         except Exception as e:
             print(f"Error listing objects in folder {folder_name}: {e}")
-            return
+            return []
 
         if not isinstance(files, list):
             print(f"Error listing objects in folder {folder_name}: Unexpected response format")
-            return
+            return []
 
         print(f"Files in folder: {files}")
 
-        os.makedirs(local_directory, exist_ok=True)
+        base_url = f"{self.supabase_url}/storage/v1/object/public/{bucket_name}/{folder_name}/"
+        file_urls = [base_url + file['name'] for file in files]
 
-        for file in files:
-            file_name = file['name']
-            destination_path = os.path.join(local_directory, os.path.basename(file_name))
-            print(f"Downloading file {file_name} to {destination_path}")
-
-            try:
-                res = self.supabase.storage.from_(bucket_name).download(file_name)
-                if 'data' not in res:
-                    print(f"Error downloading {file_name}: {res.get('error', 'Unknown error')}")
-                    continue
-            except Exception as e:
-                print(f"Error downloading {file_name}: {e}")
-                continue
-
-            with open(destination_path, 'wb') as f:
-                f.write(res['data'])
-                print(f"Downloaded {file_name} successfully to {destination_path}.")
+        return file_urls
