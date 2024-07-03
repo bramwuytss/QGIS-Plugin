@@ -10,7 +10,7 @@ from shapely.geometry import shape, mapping
 from shapely import wkt
 import os
 from qgis.PyQt.QtWidgets import QFileDialog
-from PyQt5.QtWidgets import QMessageBox, QApplication
+from PyQt5.QtWidgets import QMessageBox, QApplication, QFileDialog
 import requests
 import json
 import tempfile
@@ -1049,15 +1049,20 @@ class Server_uploader:
         feeder_shapefiles_folder = self.get_most_recent_folder_from_bucket(bucket_name, feeder_layer_name)
         switch_shapefiles_folder = self.get_most_recent_folder_from_bucket(bucket_name, switch_layer_name)
 
+        download_folder = self.choose_download_path()
+        if not download_folder:
+            print("No download folder selected, aborting.")
+            return
+
         if feeder_shapefiles_folder:
             feeder_urls = self.generate_file_urls(bucket_name, feeder_shapefiles_folder)
             print(f"Feeder shapefile URLs: {feeder_urls}")
-            self.download_and_load_shapefiles(feeder_urls, feeder_layer_name)
+            self.download_and_load_shapefiles(feeder_urls, feeder_layer_name, download_folder)
 
         if switch_shapefiles_folder:
             switch_urls = self.generate_file_urls(bucket_name, switch_shapefiles_folder)
             print(f"Switch shapefile URLs: {switch_urls}")
-            self.download_and_load_shapefiles(switch_urls, switch_layer_name)
+            self.download_and_load_shapefiles(switch_urls, switch_layer_name, download_folder)
 
     def get_most_recent_folder_from_bucket(self, bucket_name, layer_name):
         try:
@@ -1102,8 +1107,15 @@ class Server_uploader:
 
         return file_urls
 
-    def download_and_load_shapefiles(self, file_urls, layer_name):
-        download_folder = "C:/Users/BramWuyts/OneDrive - Tactical Advisory Group Management Services NV\Documents/Project De Lijn/QGIS/20240228 V4/20240228 V3 1/20240228 V2"
+    def choose_download_path(self):
+        download_folder = QFileDialog.getExistingDirectory(None, "Select Download Folder")
+        return download_folder
+
+    def download_and_load_shapefiles(self, file_urls, layer_name, download_folder):
+        if not download_folder:
+            print("No download folder provided, aborting.")
+            return
+
         if not os.path.exists(download_folder):
             os.makedirs(download_folder)
 
