@@ -749,7 +749,7 @@ class Server_uploader:
 
         for file_path in shapefile_paths:
             file_name = os.path.basename(file_path)
-            file_key = f"{layer_name}_{timestamp}/{file_name}_{timestamp}"
+            file_key = f"{layer_name}_{timestamp}/{file_name}"
 
             with open(file_path, "rb") as file:
                 response = self.supabase.storage.from_(bucket_name).upload(file_key, file)
@@ -1052,12 +1052,13 @@ class Server_uploader:
         if feeder_shapefiles_folder:
             feeder_urls = self.generate_file_urls(bucket_name, feeder_shapefiles_folder)
             print(f"Feeder shapefile URLs: {feeder_urls}")
+            self.download_and_load_shapefiles(feeder_urls, feeder_layer_name)
 
         if switch_shapefiles_folder:
             switch_urls = self.generate_file_urls(bucket_name, switch_shapefiles_folder)
             print(f"Switch shapefile URLs: {switch_urls}")
+            self.download_and_load_shapefiles(switch_urls, switch_layer_name)
 
-    # Code still needs to be changed to actually download the files from the supabase bucket and load into QGIS
     def get_most_recent_folder_from_bucket(self, bucket_name, layer_name):
         try:
             response = self.supabase.storage.from_(bucket_name).list()
@@ -1083,7 +1084,6 @@ class Server_uploader:
 
         return most_recent_folder
 
-    # Code still needs to be changed to actually download the files from the supabase bucket and load into QGIS
     def generate_file_urls(self, bucket_name, folder_name):
         try:
             files = self.supabase.storage.from_(bucket_name).list(folder_name + '/')
@@ -1101,3 +1101,31 @@ class Server_uploader:
         file_urls = [base_url + file['name'] for file in files]
 
         return file_urls
+
+    def download_and_load_shapefiles(self, file_urls, layer_name):
+        download_folder = "C:/Users/BramWuyts/OneDrive - Tactical Advisory Group Management Services NV\Documents/Project De Lijn/QGIS/20240228 V4/20240228 V3 1/20240228 V2"
+        if not os.path.exists(download_folder):
+            os.makedirs(download_folder)
+
+        shapefile_paths = []
+        for url in file_urls:
+            local_filename = os.path.join(download_folder, url.split('/')[-1])
+            print(f"Downloading {url} to {local_filename}")
+            try:
+                with requests.get(url, stream=True) as r:
+                    r.raise_for_status()
+                    with open(local_filename, 'wb') as f:
+                        for chunk in r.iter_content(chunk_size=8192):
+                            f.write(chunk)
+                shapefile_paths.append(local_filename)
+            except Exception as e:
+                print(f"Failed to download {url}: {e}")
+
+        for shapefile_path in shapefile_paths:
+            if shapefile_path.endswith('.shp'):
+                print(f"Loading shapefile {shapefile_path} into QGIS")
+                layer = QgsVectorLayer(shapefile_path, layer_name, "ogr")
+                if not layer.isValid():
+                    print(f"Failed to load layer: {shapefile_path}")
+                else:
+                    QgsProject.instance().addMapLayer(layer)
