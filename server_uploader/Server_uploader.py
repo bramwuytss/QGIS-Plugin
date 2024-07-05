@@ -746,17 +746,53 @@ class Server_uploader:
     def upload_shapefiles_to_storage(self, layer_name, shapefile_paths):
         bucket_name = "shapefiles"
         timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+        uploaded_files = set()  # To keep track of uploaded files
 
         for file_path in shapefile_paths:
             file_name = os.path.basename(file_path)
             file_key = f"{layer_name}_{timestamp}/{file_name}"
 
-            with open(file_path, "rb") as file:
-                response = self.supabase.storage.from_(bucket_name).upload(file_key, file)
+            if file_key in uploaded_files:
+                print(f"File {file_key} already uploaded, skipping.")
+                continue
 
-            if response.status_code != 200:
-                print(f"Error uploading {file_name}: {response.text}")
+            try:
+                with open(file_path, "rb") as file:
+                    response = self.supabase.storage.from_(bucket_name).upload(file_key, file)
+                if response.status_code != 200:
+                    print(f"Error uploading {file_name} to {file_key}: {response.text}")
+                    return False
+                else:
+                    print(f"Successfully uploaded {file_name} to {file_key}")
+                    uploaded_files.add(file_key)
+
+            except Exception as e:
+                print(f"Exception occurred while uploading {file_name} to {file_key}: {str(e)}")
                 return False
+
+            # Check and upload the corresponding .qml file for each shapefile
+            qml_file_path = os.path.splitext(file_path)[0] + ".qml"
+            if os.path.exists(qml_file_path):
+                qml_file_name = os.path.basename(qml_file_path)
+                qml_file_key = f"{layer_name}_{timestamp}/{qml_file_name}"
+
+                if qml_file_key in uploaded_files:
+                    print(f"QML file {qml_file_key} already uploaded, skipping.")
+                    continue
+
+                try:
+                    with open(qml_file_path, "rb") as qml_file:
+                        qml_response = self.supabase.storage.from_(bucket_name).upload(qml_file_key, qml_file)
+                    if qml_response.status_code != 200:
+                        print(f"Error uploading {qml_file_name} to {qml_file_key}: {qml_response.text}")
+                        return False
+                    else:
+                        print(f"Successfully uploaded {qml_file_name} to {qml_file_key}")
+                        uploaded_files.add(qml_file_key)
+
+                except Exception as e:
+                    print(f"Exception occurred while uploading {qml_file_name} to {qml_file_key}: {str(e)}")
+                    return False
 
         return True
 
@@ -1044,7 +1080,7 @@ class Server_uploader:
         print(f"Retrieving most recent shapefiles for bucket: {bucket_name}")
 
         feeder_layer_name = "Nieuwe voedingen-stadsplan"
-        switch_layer_name = "BL-schakelaars-zone"
+        switch_layer_name = "BL-schakelaars-zone2"
 
         feeder_shapefiles_folder = self.get_most_recent_folder_from_bucket(bucket_name, feeder_layer_name)
         switch_shapefiles_folder = self.get_most_recent_folder_from_bucket(bucket_name, switch_layer_name)
@@ -1120,6 +1156,7 @@ class Server_uploader:
             os.makedirs(download_folder)
 
         shapefile_paths = []
+        qml_file_paths = []
         for url in file_urls:
             local_filename = os.path.join(download_folder, url.split('/')[-1])
             print(f"Downloading {url} to {local_filename}")
@@ -1129,15 +1166,27 @@ class Server_uploader:
                     with open(local_filename, 'wb') as f:
                         for chunk in r.iter_content(chunk_size=8192):
                             f.write(chunk)
-                shapefile_paths.append(local_filename)
+                if local_filename.endswith('.shp'):
+                    shapefile_paths.append(local_filename)
+                elif local_filename.endswith('.qml'):
+                    qml_file_paths.append(local_filename)
             except Exception as e:
                 print(f"Failed to download {url}: {e}")
 
         for shapefile_path in shapefile_paths:
-            if shapefile_path.endswith('.shp'):
-                print(f"Loading shapefile {shapefile_path} into QGIS")
-                layer = QgsVectorLayer(shapefile_path, layer_name, "ogr")
-                if not layer.isValid():
-                    print(f"Failed to load layer: {shapefile_path}")
+            print(f"Loading shapefile {shapefile_path} into QGIS")
+            layer = QgsVectorLayer(shapefile_path, layer_name, "ogr")
+            if not layer.isValid():
+                print(f"Failed to load layer: {shapefile_path}")
+            else:
+                QgsProject.instance().addMapLayer(layer)
+
+                # Check for corresponding QML file and apply the style if it exists
+                base_name = os.path.splitext(shapefile_path)[0]
+                qml_file_path = f"{base_name}.qml"
+                if qml_file_path in qml_file_paths:
+                    print(f"Applying style from {qml_file_path} to layer {layer_name}")
+                    layer.loadNamedStyle(qml_file_path)
+                    layer.triggerRepaint()
                 else:
-                    QgsProject.instance().addMapLayer(layer)
+                    print(f"No QML file found for {shapefile_path}")
