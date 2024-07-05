@@ -7,7 +7,7 @@ Before an upload to the server can be performed, certain checks should and will 
 * check whether the ID is not null (for both layers) and 
 * check whether there is a switch between every feeder section.
 
-When the check or upload to server button is pressed, all 3 checks will be performed at once. 
+When the check button is pressed, all 3 checks will be performed at once. 
 
 If the checks fail, error layers will be created, which will contain the errors that should be fixed before proceeding.
 
