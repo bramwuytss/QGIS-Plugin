@@ -13,7 +13,7 @@ If the checks fail, error layers will be created, which will contain the errors 
 
 Upon passing checks, an upload can be performed, first to the landing table. This will result in an overview of the changes that have been made. Afterwards, users will have the choice to cancel or to accept the changes. When the user accepts the changes, an upload will happen to the final table, which should be connected with the "schakelboekje" application. 
 
-When making an upload to the final table, a copy of the shapefiles will also be uploaded to a bucket on the server. The plugin also contains a button "Get shapfiles", which will download the shapefiles from the server, so the user can always work with the most recent version of the shapefiles.   
+When making an upload to the final table, a copy of the shapefiles will also be uploaded to a bucket on the server. The plugin also contains a button `Get shapfiles`, which will download the shapefiles from the server, so the user can always work with the most recent version of the shapefiles in QGIS.   
 
 ## How to use locally
 ### Installing the plugin
